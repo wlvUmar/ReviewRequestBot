@@ -4,7 +4,7 @@ import functools
 from config import Config
 
 
-def with_retry(max_retries: int = None, delay: float = None):
+def with_retry(max_retries: int | None = None, delay: float | None = None):
     """
     Decorator factory. Retries the decorated function on exception.
 
