@@ -1,6 +1,6 @@
 # db/repository.py — All SQL queries (async). Services call this. Never write SQL elsewhere.
 import aiomysql
-from db.connection import get_connection
+from db.connection import get_connection, release_connection
 from utils.logger import log_msg
 
 
@@ -82,10 +82,10 @@ class BotRepository:
             return True
         except Exception as e:
             await conn.rollback()
-            log_msg(f"[repo] claim error request_id={request_id}: {e}")
+            log_msg(f"[repo] claim error request_id={request_id}: {e}", level="ERROR")
             raise
         finally:
-            conn.close()
+            await release_connection(conn)  # FIX: return to pool, not destroy
 
     async def release_request_notification(self, request_id: int) -> None:
         conn = await get_connection()
@@ -100,7 +100,7 @@ class BotRepository:
             )
             await conn.commit()
         finally:
-            conn.close()
+            await release_connection(conn)  # FIX: return to pool, not destroy
 
     async def get_pending_unnotified(self) -> list[dict]:
         return await self._fetchall(
@@ -116,7 +116,7 @@ class BotRepository:
             await cursor.execute(sql, params)
             await conn.commit()
         finally:
-            conn.close()
+            await release_connection(conn)  # FIX: return to pool, not destroy
 
     async def _fetchall(self, sql: str, params: tuple = ()) -> list[dict]:
         conn = await get_connection()
@@ -127,4 +127,4 @@ class BotRepository:
             await cursor.execute(sql, params)
             return await cursor.fetchall()
         finally:
-            conn.close()
+            await release_connection(conn)

@@ -17,6 +17,7 @@ class NotificationService:
         self.interval = interval or Config.NOTIFY_POLL_INTERVAL
         self.repo = BotRepository()
         self.api = ApiService()
+        self.req_svc = RequestService(self.bot, self.repo)  # Create once, reuse per poll
         self._stop = asyncio.Event()
 
     def stop(self):
@@ -36,9 +37,8 @@ class NotificationService:
                         continue
                     status = status_payload.get("status")
                     if status in ("approved", "rejected"):
-                        # Use a RequestService instance to send notification and mark notified
-                        svc = RequestService(self.bot, self.repo)
-                        result = await svc.notify_review_result(
+                        # Use the pre-created RequestService instance
+                        result = await self.req_svc.notify_review_result(
                             int(req_id),
                             status,
                             status_payload.get("price", ""),

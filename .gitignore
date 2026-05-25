@@ -2,3 +2,5 @@
 .env
 001.sql
 *.pyc
+gather_codebase.py
+codebase.txt

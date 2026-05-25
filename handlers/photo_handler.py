@@ -6,7 +6,7 @@ from config import Config
 from services.request_service import RequestService
 from db.repository import BotRepository
 from utils.logger import log_msg
- 
+
 # In-memory pending state: telegram_id -> [file_id, ...]
 _pending_photos: dict[int, list[str]] = {}
 # In-memory prompt message ids so we can remove the inline keyboard after submit.
@@ -15,8 +15,19 @@ _submit_prompt_messages: dict[int, int] = {}
 _submit_progress_counts: dict[int, int] = {}
 # In-memory album buffers keyed by Telegram media group id.
 _pending_albums: dict[str, dict] = {}
-# Async lock per-chat progress updates to keep photo album progress monotonic.
-_photo_state_lock = asyncio.Lock()
+# Per-user locks to avoid blocking unrelated users
+_user_locks: dict[int, asyncio.Lock] = {}
+
+# FIX: singleton repo and service — created once, not per request
+_repo = BotRepository()
+
+
+def _get_user_lock(telegram_id: int) -> asyncio.Lock:
+    """Get or create a per-user lock."""
+    if telegram_id not in _user_locks:
+        _user_locks[telegram_id] = asyncio.Lock()
+    return _user_locks[telegram_id]
+
 
 def register_photo_handler(bot: AsyncTeleBot):
 
@@ -24,6 +35,7 @@ def register_photo_handler(bot: AsyncTeleBot):
     async def handle_photo(message: Message):
         log_msg(f"[photo_handler] Photo received from {message.from_user.id}")
         telegram_id = message.from_user.id
+        user_lock = _get_user_lock(telegram_id)
 
         if message.photo:
             photo = message.photo[-1]
@@ -34,7 +46,7 @@ def register_photo_handler(bot: AsyncTeleBot):
                 await _queue_album_photo(bot, message, telegram_id, media_group_id, file_id)
                 return
 
-            async with _photo_state_lock:
+            async with user_lock:
                 current = _pending_photos.get(telegram_id, [])
                 if len(current) >= Config.MAX_PHOTOS_PER_REQUEST:
                     log_msg(f"[photo_handler] Photo limit reached for {telegram_id}")
@@ -68,11 +80,9 @@ def register_photo_handler(bot: AsyncTeleBot):
 
             if prev_prompt_id:
                 try:
-                    async with _photo_state_lock:
+                    async with user_lock:
                         if _submit_progress_counts.get(telegram_id, 0) != count:
-                            log_msg(f"[photo_handler] Aborting stale delete for {telegram_id}: current={_submit_progress_counts.get(telegram_id, 0)} desired={count}")
                             return
-                    # Delete previous message and send new one
                     await bot.delete_message(message.chat.id, prev_prompt_id)
                 except Exception as e:
                     log_msg(f"[photo_handler] Failed to delete previous progress message: {e}")
@@ -82,12 +92,13 @@ def register_photo_handler(bot: AsyncTeleBot):
                 progress_text,
                 reply_markup=markup
             )
-            async with _photo_state_lock:
+            async with user_lock:
                 if _submit_progress_counts.get(telegram_id, 0) == count:
                     _submit_prompt_messages[telegram_id] = prompt.message_id
 
     async def _queue_album_photo(bot: AsyncTeleBot, message: Message, telegram_id: int, media_group_id: str, file_id: str) -> None:
-        async with _photo_state_lock:
+        user_lock = _get_user_lock(telegram_id)
+        async with user_lock:
             batch = _pending_albums.get(media_group_id)
             if batch is None:
                 batch = {
@@ -110,15 +121,16 @@ def register_photo_handler(bot: AsyncTeleBot):
             if timer:
                 timer.cancel()
 
-            timer = asyncio.create_task(_flush_album_with_delay(bot, media_group_id))
+            timer = asyncio.create_task(_flush_album_with_delay(bot, media_group_id, telegram_id))
             batch["timer"] = timer
 
-    async def _flush_album_with_delay(bot: AsyncTeleBot, media_group_id: str) -> None:
+    async def _flush_album_with_delay(bot: AsyncTeleBot, media_group_id: str, telegram_id: int) -> None:
         await asyncio.sleep(1.2)
-        await _flush_album(bot, media_group_id)
+        await _flush_album(bot, media_group_id, telegram_id)
 
-    async def _flush_album(bot: AsyncTeleBot, media_group_id: str) -> None:
-        async with _photo_state_lock:
+    async def _flush_album(bot: AsyncTeleBot, media_group_id: str, telegram_id: int) -> None:
+        user_lock = _get_user_lock(telegram_id)
+        async with user_lock:
             batch = _pending_albums.pop(media_group_id, None)
 
         if not batch:
@@ -130,7 +142,7 @@ def register_photo_handler(bot: AsyncTeleBot):
         if not file_ids:
             return
 
-        async with _photo_state_lock:
+        async with user_lock:
             current = _pending_photos.get(telegram_id, [])
             room_left = Config.MAX_PHOTOS_PER_REQUEST - len(current)
             if room_left <= 0:
@@ -156,13 +168,12 @@ def register_photo_handler(bot: AsyncTeleBot):
 
         if prev_prompt_id:
             try:
-                # Delete previous message and send new one
                 await bot.delete_message(chat_id, prev_prompt_id)
             except Exception as e:
                 log_msg(f"[photo_handler] Failed to delete album progress message: {e}")
 
         prompt = await bot.send_message(chat_id, progress_text, reply_markup=markup)
-        async with _photo_state_lock:
+        async with user_lock:
             if _submit_progress_counts.get(telegram_id, 0) == count:
                 _submit_prompt_messages[telegram_id] = prompt.message_id
 
@@ -200,8 +211,8 @@ def register_photo_handler(bot: AsyncTeleBot):
         log_msg(f"[photo_handler] Found {len(file_ids)} pending photo(s), calling RequestService.submit_product_request()")
         await bot.send_message(message.chat.id, f"⏳ Отправляем {len(file_ids)} фото на оценку...")
 
-        repo = BotRepository()
-        svc = RequestService(bot, repo)
+        # FIX: reuse singleton repo, create svc with it
+        svc = RequestService(bot, _repo)
         await svc.submit_product_request(
             chat_id=message.chat.id,
             telegram_id=telegram_id,
@@ -213,4 +224,3 @@ def register_photo_handler(bot: AsyncTeleBot):
     register_photo_handler._finalize = _finalize_submission
     register_photo_handler._pending = _pending_photos
     register_photo_handler._submit_prompts = _submit_prompt_messages
-

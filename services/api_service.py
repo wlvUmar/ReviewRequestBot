@@ -9,7 +9,7 @@ from config import Config
 from utils.retry import async_with_retry
 from utils.logger import log_msg
 
- 
+
 class ApiService:
     """
     Communicates with the existing PHP MVC backend REST API (async).
@@ -21,20 +21,24 @@ class ApiService:
 
         The PHP backend verifies the signature and rejects requests older than 60 s.
         This prevents replay attacks without needing OAuth or session tokens.
-
-    Example PHP verification (add to your existing API controller):
-        $secret    = env('BOT_API_SECRET');
-        $timestamp = $_SERVER['HTTP_X_BOT_TIMESTAMP'] ?? '';
-        $signature = $_SERVER['HTTP_X_BOT_SIGNATURE'] ?? '';
-        $body      = file_get_contents('php://input');
-        $expected  = hash_hmac('sha256', $secret . ':' . $timestamp . ':' . $body, $secret);
-        if (!hash_equals($expected, $signature) || abs(time() - (int)$timestamp) > 60) {
-            http_response_code(401); exit;
-        }
     """
 
     BASE = Config.PHP_API_BASE_URL
     SECRET = Config.PHP_API_SECRET
+
+    def __init__(self):
+        # FIX: single shared session instead of one per request
+        self._session: aiohttp.ClientSession | None = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self) -> None:
+        """Call this on shutdown to cleanly close the session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     # ------------------------------------------------------------------
     # Public methods
@@ -60,53 +64,48 @@ class ApiService:
         log_msg(f"[api] Creating product request at {url}")
         log_msg(f"[api] telegram_id={telegram_id}, photo_count={len(images)}")
 
-        data = {
-            "telegram_id": str(telegram_id),
-            "description": description,
-        }
         body_for_sig = f"telegram_id={telegram_id}&description={description}"
 
         form = aiohttp.FormData()
         form.add_field("telegram_id", str(telegram_id))
         form.add_field("description", description)
-        
+
         for index, (image_bytes, filename) in enumerate(images):
             log_msg(f"[api] photo#{index + 1} filename={filename}, image_size={len(image_bytes)} bytes")
             form.add_field("images[]", image_bytes, filename=filename, content_type="image/jpeg")
 
         headers = self._auth_headers(body_for_sig)
-        log_msg(f"[api] Headers: X-Bot-Timestamp={headers.get('X-Bot-Timestamp')}, X-Bot-Signature={headers.get('X-Bot-Signature')[:16]}...") #type: ignore
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url,
-                    data=form,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=20),
-                ) as response:
-                    log_msg(f"[api] Response status: {response.status}")
-                    text = await response.text()
-                    log_msg(f"[api] Response body: {text[:500]}")
-                    
-                    if response.status != 200:
-                        log_msg(f"[api] HTTP error: {response.status}")
-                        return None
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=form,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as response:
+                log_msg(f"[api] Response status: {response.status}")
+                text = await response.text()
+                log_msg(f"[api] Response body: {text[:500]}")
 
-                    payload = await response.json()
-                    if payload.get("success") and "request_id" in payload:
-                        log_msg(f"[api] Success! Got request_id={payload['request_id']}")
-                        return {"request_id": int(payload["request_id"])}
-
-                    log_msg(f"[api] Unexpected response: {payload}")
+                if response.status not in (200, 201):
+                    log_msg(f"[api] HTTP error: {response.status}", level="ERROR")
                     return None
 
+                payload = await response.json(content_type=None)
+                if payload.get("success") and "request_id" in payload:
+                    log_msg(f"[api] Success! Got request_id={payload['request_id']}")
+                    return {"request_id": int(payload["request_id"])}
+
+                log_msg(f"[api] Unexpected response: {payload}", level="ERROR")
+                return None
+
         except asyncio.TimeoutError as e:
-            log_msg(f"[api] Timeout error: {e}")
+            log_msg(f"[api] Timeout error: {e}", level="ERROR")
         except aiohttp.ClientError as e:
-            log_msg(f"[api] Connection error: {e}")
+            log_msg(f"[api] Connection error: {e}", level="ERROR")
         except Exception as e:
-            log_msg(f"[api] Request error: {e}")
+            log_msg(f"[api] Request error: {e}", level="ERROR")
 
         return None
 
@@ -128,19 +127,19 @@ class ApiService:
         log_msg(f"[api] Getting request status at {url}")
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    headers=self._auth_headers(""),
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    log_msg(f"[api] Status response: {response.status}")
-                    if response.status != 200:
-                        log_msg(f"[api] HTTP error: {response.status}")
-                        return None
-                    return await response.json()
+            session = await self._get_session()
+            async with session.get(
+                url,
+                headers=self._auth_headers(""),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Status response: {response.status}")
+                if response.status != 200:
+                    log_msg(f"[api] HTTP error: {response.status}", level="ERROR")
+                    return None
+                return await response.json(content_type=None)
         except Exception as e:
-            log_msg(f"[api] Failed to get request status: {e}")
+            log_msg(f"[api] Failed to get request status: {e}", level="ERROR")
 
         return None
 
@@ -148,44 +147,35 @@ class ApiService:
     async def create_access_token(self, request_id: int, token: str) -> dict | None:
         """
         POST /api/bot/access-token
-
-        Store an access token for a request (3-day expiration)
-        
-        Expected PHP response:
-        {
-            "success": true,
-            "request_id": 42,
-            "token": "abc123..."
-        }
         """
         url = self._request_url_candidates("/bot/access-token")
-        log_msg(f"[api] Creating access token for request {request_id}, token={token[:16]}...")
-        
+        log_msg(f"[api] Creating access token for request {request_id}")
+
         body_for_sig = f"request_id={request_id}&token={token}"
         data = {
             "request_id": str(request_id),
             "token": token,
         }
         headers = self._auth_headers(body_for_sig)
-        
+
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url,
-                    data=data,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    log_msg(f"[api] Token response status: {response.status}, body: {await response.text()[:500]}")
-                    if response.status != 200:
-                        log_msg(f"[api] HTTP error: {response.status}")
-                        return None
-                    result = await response.json()
-                    log_msg(f"[api] Token created successfully: {result}")
-                    return result
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=data,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Token response status: {response.status}")
+                if response.status not in (200, 201):
+                    log_msg(f"[api] HTTP error: {response.status}", level="ERROR")
+                    return None
+                result = await response.json(content_type=None)
+                log_msg(f"[api] Token created successfully")
+                return result
         except Exception as e:
-            log_msg(f"[api] Failed to create access token: {e}")
-        
+            log_msg(f"[api] Failed to create access token: {e}", level="ERROR")
+
         return None
 
     # ------------------------------------------------------------------

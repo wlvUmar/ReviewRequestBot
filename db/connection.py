@@ -6,7 +6,6 @@ _pool: aiomysql.Pool | None = None
 
 async def get_pool() -> aiomysql.Pool:
     global _pool
-    log_msg("get_pool")
     if _pool is None:
         try:
             _pool = await aiomysql.create_pool(
@@ -22,7 +21,7 @@ async def get_pool() -> aiomysql.Pool:
             )
         except Exception as e:
             _pool = None
-            log_msg(f"Pool Error {e}")
+            log_msg(f"Pool Error {e}", level="ERROR")
 
     return _pool
 
@@ -31,6 +30,16 @@ async def get_connection():
         pool = await get_pool()
         conn = await pool.acquire()
     except Exception as e:
-        log_msg(f"Connection Error {e}")
+        log_msg(f"Connection Error {e}", level="ERROR")
         conn = None
     return conn
+
+async def release_connection(conn) -> None:
+    """Return a connection to the pool instead of destroying it."""
+    if conn is None:
+        return
+    try:
+        pool = await get_pool()
+        pool.release(conn)
+    except Exception as e:
+        log_msg(f"Release Error {e}", level="ERROR")

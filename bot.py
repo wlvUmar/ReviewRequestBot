@@ -48,7 +48,7 @@ async def main():
     log_msg("[bot] Bot is running...")
     log_msg("[bot] Starting polling (listening for messages)...")
     try:
-        await bot.polling(timeout=30, long_polling_timeout=20)
+        await bot.polling(timeout=30)
     except Exception as e:
         log_msg(f"[bot] ERROR in polling loop: {e}")
         import traceback

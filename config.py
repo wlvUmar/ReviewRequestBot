@@ -35,3 +35,5 @@ class Config:
     # Admin notifications
     ADMIN_IDS: list[int] = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
     
+    # Logging (DEBUG=1 for verbose, DEBUG=0 for errors only)
+    DEBUG: bool = os.getenv("DEBUG", "1") == "1"
