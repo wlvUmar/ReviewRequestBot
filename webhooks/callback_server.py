@@ -1,4 +1,4 @@
-# webhooks/callback_server.py — Flask server that listens for callbacks FROM the PHP backend.
+# webhooks/callback_server.py — Flask server that listens for callbacks FROM the PHP backend (async-compatible).
 #
 # Sync architecture:
 #   When an admin reviews a request in the PHP admin panel, the PHP backend
@@ -21,20 +21,20 @@
 #       'Content-Type'         => 'application/json',
 #   ])->post(env('BOT_CALLBACK_URL') . '/webhook/review-result', json_decode($payload, true));
  
-from flask import Flask, request, jsonify
+import asyncio
 import hmac
 import hashlib
 import time
 import traceback
-import telebot
+from flask import Flask, request, jsonify
 from config import Config
 from db.repository import BotRepository
 from services.request_service import RequestService
 from utils.logger import log_msg
-from utils.logger import log_msg
 
 
-def start_callback_server(bot: telebot.TeleBot):
+def start_callback_server(bot, loop):
+    """Start Flask server in background. Receives callbacks from PHP."""
     app = Flask(__name__)
 
     @app.route("/webhook/review-result", methods=["POST"])
@@ -69,24 +69,34 @@ def start_callback_server(bot: telebot.TeleBot):
         contact_phone = data.get("contact_phone", "")
         log_msg(f"[callback] payload request_id={request_id} status={status} price={price} contact_phone={contact_phone or 'EMPTY'}")
 
-        # --- Notify user via bot ---
+        # --- Notify user via bot (run async in event loop) ---
         repo = BotRepository()
         svc = RequestService(bot, repo)
-        sent = svc.notify_review_result(request_id, status, price, notes, contact_phone)
-
-        if sent:
-            log_msg(f"[callback] Notified request_id={request_id}")
-            return jsonify({"ok": True, "notified": True}), 200
-        else:
-            # PHP should retry — request_id not found yet (race) or user blocked bot
-            log_msg(f"[callback] Notification failed for request_id={request_id}")
-            return jsonify({"ok": False, "notified": False}), 404
+        
+        # Run async function in the event loop
+        future = asyncio.run_coroutine_threadsafe(
+            svc.notify_review_result(request_id, status, price, notes, contact_phone),
+            loop
+        )
+        
+        try:
+            sent = future.result(timeout=10)
+            if sent:
+                log_msg(f"[callback] Notified request_id={request_id}")
+                return jsonify({"ok": True, "notified": True}), 200
+            else:
+                log_msg(f"[callback] Notification failed for request_id={request_id}")
+                return jsonify({"ok": False, "notified": False}), 404
+        except Exception as e:
+            log_msg(f"[callback] Error notifying: {e}")
+            log_msg(traceback.format_exc())
+            return jsonify({"ok": False, "error": str(e)}), 500
 
     @app.route("/health", methods=["GET"])
     def health():
         return jsonify({"status": "ok"}), 200
 
-    app.run(host=Config.CALLBACK_HOST, port=Config.CALLBACK_PORT)
+    app.run(host=Config.CALLBACK_HOST, port=Config.CALLBACK_PORT, threaded=True)
 
 
 def _verify_signature(body: str, timestamp: str, signature: str) -> bool:
@@ -99,3 +109,4 @@ def _verify_signature(body: str, timestamp: str, signature: str) -> bool:
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
+
