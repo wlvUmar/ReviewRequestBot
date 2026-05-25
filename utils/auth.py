@@ -1,4 +1,3 @@
-# utils/auth.py — Reusable HMAC helpers. Used by both api_service and callback_server.
 import hmac
 import hashlib
 import time
@@ -13,7 +12,7 @@ def make_signature(secret: str, body: str, timestamp: str | None = None) -> tupl
     message = f"{secret}:{ts}:{body}"
     sig = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
     return ts, sig
-
+ 
 
 def verify_signature(secret: str, body: str, timestamp: str, signature: str, max_age: int = 60) -> bool:
     """

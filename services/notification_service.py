@@ -1,11 +1,13 @@
 import time
 import threading
+import traceback
 from config import Config
 from db.repository import BotRepository
 from services.api_service import ApiService
 from services.request_service import RequestService
+from utils.logger import log_msg
 
-
+ 
 class NotificationService:
     """Background poller that reconciles request statuses and notifies users.
     Use this if the PHP backend cannot reliably POST webhooks to the bot.
@@ -37,8 +39,16 @@ class NotificationService:
                     if status in ("approved", "rejected"):
                         # Use a RequestService instance to send notification and mark notified
                         svc = RequestService(self.bot, self.repo)
-                        svc.notify_review_result(int(req_id), status, status_payload.get("price", ""), status_payload.get("admin_notes") or status_payload.get("notes", ""))
+                        result = svc.notify_review_result(
+                            int(req_id),
+                            status,
+                            status_payload.get("price", ""),
+                            status_payload.get("admin_notes") or status_payload.get("notes", ""),
+                            status_payload.get("contact_phone", "")
+                        )
+                        log_msg(f"[notifier] notify_review_result request_id={req_id} result={result}")
             except Exception as e:
-                print(f"[notifier] error: {e}")
+                log_msg(f"[notifier] error: {e}")
+                log_msg(traceback.format_exc())
             # Sleep until next poll
             time.sleep(self.interval)

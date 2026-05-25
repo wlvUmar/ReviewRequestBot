@@ -27,5 +27,11 @@ class Config:
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
     RETRY_DELAY: float = float(os.getenv("RETRY_DELAY", "2.0"))
     IMAGE_MAX_MB: int = int(os.getenv("IMAGE_MAX_MB", "10"))
+    MAX_PHOTOS_PER_REQUEST: int = int(os.getenv("MAX_PHOTOS_PER_REQUEST", "4"))
     # Poll interval (seconds) for background notification reconciler
     NOTIFY_POLL_INTERVAL: int = int(os.getenv("NOTIFY_POLL_INTERVAL", "60"))
+    ENABLE_NOTIFY_POLLING: bool = os.getenv("ENABLE_NOTIFY_POLLING", "0") == "1"
+    
+    # Admin notifications
+    ADMIN_IDS: list[int] = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+    

@@ -1,22 +1,16 @@
 # db/repository.py — All SQL queries. Services call this. Never write SQL elsewhere.
 from db.connection import get_connection
-
+from utils.logger import log_msg
+ 
 
 class BotRepository:
-
-    # ------------------------------------------------------------------
-    # Users
-    # ------------------------------------------------------------------
-
     def upsert_user(self, telegram_id: int, username: str, first_name: str) -> None:
-        """Insert or update a bot user. Called on /start."""
         sql = """
             INSERT INTO bot_users (telegram_id, username, first_name)
             VALUES (%s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 username    = VALUES(username),
-                first_name  = VALUES(first_name),
-                last_seen   = NOW()
+                first_name  = VALUES(first_name)
         """
         self._execute(sql, (telegram_id, username, first_name))
 
@@ -26,10 +20,6 @@ class BotRepository:
             (telegram_id,)
         )
         return rows[0] if rows else None
-
-    # ------------------------------------------------------------------
-    # Requests
-    # ------------------------------------------------------------------
 
     def save_request(
         self,
@@ -41,13 +31,10 @@ class BotRepository:
         """Store the mapping between a PHP request_id and a Telegram user."""
         sql = """
             INSERT INTO bot_request_mappings
-                (request_id, telegram_id, tg_file_id, description, status)
-            VALUES (%s, %s, %s, %s, 'pending')
-            ON DUPLICATE KEY UPDATE
-                tg_file_id  = VALUES(tg_file_id),
-                description = VALUES(description)
+                (request_id, telegram_id, notification_sent)
+            VALUES (%s, %s, 0)
         """
-        self._execute(sql, (request_id, telegram_id, file_id, description))
+        self._execute(sql, (request_id, telegram_id))
 
     def get_request(self, request_id: int) -> dict | None:
         rows = self._fetchall(
@@ -58,25 +45,68 @@ class BotRepository:
 
     def mark_request_notified(self, request_id: int) -> None:
         self._execute(
-            "UPDATE bot_request_mappings SET status = 'notified', notified_at = NOW() WHERE request_id = %s",
+            "UPDATE bot_request_mappings SET notification_sent = 1 WHERE request_id = %s",
             (request_id,)
         )
 
-    def get_pending_unnotified(self) -> list[dict]:
-        """Fetch requests that have a result but haven't been notified yet (safety net)."""
-        return self._fetchall(
-            "SELECT * FROM bot_request_mappings WHERE status IN ('approved','rejected') AND notified_at IS NULL"
-        )
+    def claim_request_notification(self, request_id: int) -> bool:
+        conn = get_connection()
+        try:
+            conn.start_transaction()
+            cursor = conn.cursor(buffered=True, dictionary=True)
+            cursor.execute(
+                "SELECT notification_sent FROM bot_request_mappings WHERE request_id = %s LIMIT 1 FOR UPDATE",
+                (request_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                conn.rollback()
+                log_msg(f"[repo] claim missing request_id={request_id}")
+                return False
 
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
+            state = row.get("notification_sent")
+            if state in (1, 2):
+                conn.rollback()
+                log_msg(f"[repo] claim already handled request_id={request_id} state={state}")
+                return True
+
+            cursor.execute(
+                "UPDATE bot_request_mappings SET notification_sent = 2 WHERE request_id = %s",
+                (request_id,)
+            )
+            conn.commit()
+            log_msg(f"[repo] claim acquired request_id={request_id}")
+            return True
+        except Exception as e:
+            conn.rollback()
+            log_msg(f"[repo] claim error request_id={request_id}: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def release_request_notification(self, request_id: int) -> None:
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE bot_request_mappings SET notification_sent = 0 WHERE request_id = %s AND notification_sent = 2",
+                (request_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_pending_unnotified(self) -> list[dict]:
+        return self._fetchall(
+            "SELECT * FROM bot_request_mappings WHERE notification_sent = 0"
+        )
 
     def _execute(self, sql: str, params: tuple = ()) -> None:
         conn = get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(sql, params)
+            conn.commit()
         finally:
             conn.close()
 

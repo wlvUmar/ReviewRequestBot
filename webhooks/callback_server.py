@@ -20,15 +20,18 @@
 #       'X-Callback-Signature' => $signature,
 #       'Content-Type'         => 'application/json',
 #   ])->post(env('BOT_CALLBACK_URL') . '/webhook/review-result', json_decode($payload, true));
-
+ 
 from flask import Flask, request, jsonify
 import hmac
 import hashlib
 import time
+import traceback
 import telebot
 from config import Config
 from db.repository import BotRepository
 from services.request_service import RequestService
+from utils.logger import log_msg
+from utils.logger import log_msg
 
 
 def start_callback_server(bot: telebot.TeleBot):
@@ -63,16 +66,20 @@ def start_callback_server(bot: telebot.TeleBot):
         status = data.get("status", "")
         price = data.get("price", "")
         notes = data.get("notes", "")
+        contact_phone = data.get("contact_phone", "")
+        log_msg(f"[callback] payload request_id={request_id} status={status} price={price} contact_phone={contact_phone or 'EMPTY'}")
 
         # --- Notify user via bot ---
         repo = BotRepository()
         svc = RequestService(bot, repo)
-        sent = svc.notify_review_result(request_id, status, price, notes)
+        sent = svc.notify_review_result(request_id, status, price, notes, contact_phone)
 
         if sent:
+            log_msg(f"[callback] Notified request_id={request_id}")
             return jsonify({"ok": True, "notified": True}), 200
         else:
             # PHP should retry — request_id not found yet (race) or user blocked bot
+            log_msg(f"[callback] Notification failed for request_id={request_id}")
             return jsonify({"ok": False, "notified": False}), 404
 
     @app.route("/health", methods=["GET"])
