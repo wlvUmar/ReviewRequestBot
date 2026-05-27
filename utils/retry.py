@@ -3,6 +3,9 @@ import asyncio
 import time
 import functools
 from config import Config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def with_retry(max_retries: int | None = None, delay: float | None = None):
@@ -28,10 +31,16 @@ def with_retry(max_retries: int | None = None, delay: float | None = None):
                     return func(*args, **kwargs)
                 except Exception as e:
                     last_error = e
-                    print(f"[retry] {func.__name__} attempt {attempt}/{_max} failed: {e}")
+                    logger.warning(
+                        "[retry] %s attempt %s/%s failed: %s",
+                        func.__name__,
+                        attempt,
+                        _max,
+                        e,
+                    )
                     if attempt < _max:
                         time.sleep(_delay * attempt)  # exponential-ish back-off
-            print(f"[retry] {func.__name__} gave up after {_max} attempts.")
+            logger.error("[retry] %s gave up after %s attempts.", func.__name__, _max)
             return None
         return wrapper
     return decorator
@@ -60,10 +69,16 @@ def async_with_retry(max_retries: int | None = None, delay: float | None = None)
                     return await func(*args, **kwargs)
                 except Exception as e:
                     last_error = e
-                    print(f"[retry] {func.__name__} attempt {attempt}/{_max} failed: {e}")
+                    logger.warning(
+                        "[retry] %s attempt %s/%s failed: %s",
+                        func.__name__,
+                        attempt,
+                        _max,
+                        e,
+                    )
                     if attempt < _max:
                         await asyncio.sleep(_delay * attempt)  # exponential-ish back-off
-            print(f"[retry] {func.__name__} gave up after {_max} attempts.")
+            logger.error("[retry] %s gave up after %s attempts.", func.__name__, _max)
             return None
         return wrapper
     return decorator

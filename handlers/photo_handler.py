@@ -1,24 +1,19 @@
 # handlers/photo_handler.py — Captures product photos (async).
 import asyncio
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from config import Config
 from services.request_service import RequestService
 from db.repository import BotRepository
 from utils.logger import log_msg
 
-# In-memory pending state: telegram_id -> [file_id, ...]
 _pending_photos: dict[int, list[str]] = {}
-# In-memory prompt message ids so we can remove the inline keyboard after submit.
 _submit_prompt_messages: dict[int, int] = {}
-# In-memory progress counters so older photo updates cannot overwrite newer ones.
 _submit_progress_counts: dict[int, int] = {}
-# In-memory album buffers keyed by Telegram media group id.
 _pending_albums: dict[str, dict] = {}
-# Per-user locks to avoid blocking unrelated users
 _user_locks: dict[int, asyncio.Lock] = {}
+_pending_captions: dict[int, str] = {}
 
-# FIX: singleton repo and service — created once, not per request
 _repo = BotRepository()
 
 
@@ -30,12 +25,24 @@ def _get_user_lock(telegram_id: int) -> asyncio.Lock:
 
 
 def register_photo_handler(bot: AsyncTeleBot):
-
     @bot.message_handler(content_types=["photo"])
     async def handle_photo(message: Message):
-        log_msg(f"[photo_handler] Photo received from {message.from_user.id}")
         telegram_id = message.from_user.id
+        user = await _repo.get_user(telegram_id)
+        if not user or not user.get("phone"):
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            markup.add(KeyboardButton("📱 Поделиться номером", request_contact=True))
+            await bot.send_message(
+                message.chat.id,
+                "⚠️ Сначала поделитесь номером телефона.",
+                reply_markup=markup
+            )
+            return
+
+        log_msg(f"[photo_handler] Photo received from {message.from_user.id}")
         user_lock = _get_user_lock(telegram_id)
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("Отправить", callback_data="submit_request"))
 
         if message.photo:
             photo = message.photo[-1]
@@ -47,12 +54,21 @@ def register_photo_handler(bot: AsyncTeleBot):
                 return
 
             async with user_lock:
+                if message.caption:
+                    _pending_captions[telegram_id] = message.caption
                 current = _pending_photos.get(telegram_id, [])
+
                 if len(current) >= Config.MAX_PHOTOS_PER_REQUEST:
                     log_msg(f"[photo_handler] Photo limit reached for {telegram_id}")
                     await bot.send_message(
                         message.chat.id,
-                        f"⚠️ You can send up to {Config.MAX_PHOTOS_PER_REQUEST} photos per request."
+                        f"⚠️ Максимум {Config.MAX_PHOTOS_PER_REQUEST} фото — только первые {Config.MAX_PHOTOS_PER_REQUEST} будут отправлены на оценку.\n\n👉 Нажмите кнопку, чтобы отправить на оценку." \
+                        f"📸 <b>Фото принято:</b> {Config.MAX_PHOTOS_PER_REQUEST}/{Config.MAX_PHOTOS_PER_REQUEST}\n\n"
+                        "📝 <b>Добавьте короткое описание:</b>\n"
+                        "— что это за вещь\n"
+                        "— желаемая цена продажи\n\n"
+                        "👉 Когда будете готовы — нажмите кнопку для оценки",            
+                        reply_markup=markup
                     )
                     return
 
@@ -67,8 +83,7 @@ def register_photo_handler(bot: AsyncTeleBot):
                 _submit_progress_counts[telegram_id] = count
                 log_msg(f"[photo_handler] Photo stored in pending: {file_id[:20]}... (total={count})")
 
-            markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("Отправить", callback_data="submit_request"))
+
             progress_text = (
                 f"📸 <b>Фото принято:</b> {count}/{Config.MAX_PHOTOS_PER_REQUEST}\n\n"
                 "📝 <b>Добавьте короткое описание:</b>\n"
@@ -202,6 +217,14 @@ def register_photo_handler(bot: AsyncTeleBot):
     async def _finalize_submission(bot: AsyncTeleBot, message: Message, telegram_id: int, description: str):
         log_msg(f"[photo_handler] Finalizing submission for {telegram_id}, description_len={len(description)}")
         file_ids = _pending_photos.pop(telegram_id, [])
+        caption = _pending_captions.pop(telegram_id, "")
+        if caption and description:
+            full_description = caption + "\n" + description
+        else:
+            full_description = caption or description
+        
+
+        
         _submit_progress_counts.pop(telegram_id, None)
         if not file_ids:
             log_msg(f"[photo_handler] No photo found in pending for {telegram_id}")
@@ -217,10 +240,11 @@ def register_photo_handler(bot: AsyncTeleBot):
             chat_id=message.chat.id,
             telegram_id=telegram_id,
             file_ids=file_ids,
-            description=description,
+            description=full_description,
         )
 
     # Expose _finalize_submission so text_handler can call it
     register_photo_handler._finalize = _finalize_submission
     register_photo_handler._pending = _pending_photos
     register_photo_handler._submit_prompts = _submit_prompt_messages
+    register_photo_handler._pending_captions = _pending_captions

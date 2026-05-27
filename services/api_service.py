@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import time
 import aiohttp
+from urllib.parse import urlencode
 from config import Config
 from utils.retry import async_with_retry
 from utils.logger import log_msg
@@ -64,7 +65,10 @@ class ApiService:
         log_msg(f"[api] Creating product request at {url}")
         log_msg(f"[api] telegram_id={telegram_id}, photo_count={len(images)}")
 
-        body_for_sig = f"telegram_id={telegram_id}&description={description}"
+        body_for_sig = self._signed_body([
+            ("telegram_id", str(telegram_id)),
+            ("description", description),
+        ])
 
         form = aiohttp.FormData()
         form.add_field("telegram_id", str(telegram_id))
@@ -151,7 +155,10 @@ class ApiService:
         url = self._request_url_candidates("/bot/access-token")
         log_msg(f"[api] Creating access token for request {request_id}")
 
-        body_for_sig = f"request_id={request_id}&token={token}"
+        body_for_sig = self._signed_body([
+            ("request_id", str(request_id)),
+            ("token", token),
+        ])
         data = {
             "request_id": str(request_id),
             "token": token,
@@ -178,6 +185,242 @@ class ApiService:
 
         return None
 
+    @async_with_retry()
+    async def upsert_user(self, telegram_id: int, username: str, first_name: str, last_name: str) -> dict | None:
+        url = self._request_url_candidates("/bot/users")
+        body_for_sig = self._signed_body([
+            ("telegram_id", str(telegram_id)),
+            ("username", username),
+            ("first_name", first_name),
+            ("last_name", last_name),
+        ])
+        data = {
+            "telegram_id": str(telegram_id),
+            "username": username,
+            "first_name": first_name,
+            "last_name": last_name,
+        }
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=data,
+                headers=self._auth_headers(body_for_sig),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Upsert user response: {response.status}")
+                if response.status not in (200, 201):
+                    return None
+                payload = await response.json(content_type=None)
+                return payload if payload.get("success") else None
+        except Exception as e:
+            log_msg(f"[api] Failed to upsert user: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def get_user(self, telegram_id: int) -> dict | None:
+        url = self._request_url_candidates(f"/bot/users/{telegram_id}")
+        try:
+            session = await self._get_session()
+            async with session.get(
+                url,
+                headers=self._auth_headers(""),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Get user response: {response.status}")
+                if response.status != 200:
+                    return None
+                payload = await response.json(content_type=None)
+                return payload.get("user") if payload.get("success") else None
+        except Exception as e:
+            log_msg(f"[api] Failed to get user: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def save_phone(self, telegram_id: int, phone: str) -> bool:
+        url = self._request_url_candidates(f"/bot/users/{telegram_id}/phone")
+        body_for_sig = self._signed_body([
+            ("telegram_id", str(telegram_id)),
+            ("phone", phone),
+        ])
+        data = {
+            "phone": phone,
+        }
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=data,
+                headers=self._auth_headers(body_for_sig),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Save phone response: {response.status}")
+                if response.status not in (200, 201):
+                    return False
+                payload = await response.json(content_type=None)
+                return bool(payload.get("success"))
+        except Exception as e:
+            log_msg(f"[api] Failed to save phone: {e}", level="ERROR")
+            return False
+
+    @async_with_retry()
+    async def get_phone(self, telegram_id: int) -> str | None:
+        url = self._request_url_candidates(f"/bot/users/{telegram_id}/phone")
+        try:
+            session = await self._get_session()
+            async with session.get(
+                url,
+                headers=self._auth_headers(""),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Get phone response: {response.status}")
+                if response.status != 200:
+                    return None
+                payload = await response.json(content_type=None)
+                return payload.get("phone") if payload.get("success") else None
+        except Exception as e:
+            log_msg(f"[api] Failed to get phone: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def save_request(self, request_id: int, telegram_id: int, file_id: str, description: str) -> dict | None:
+        url = self._request_url_candidates("/bot/mappings")
+        body_for_sig = self._signed_body([
+            ("request_id", str(request_id)),
+            ("telegram_id", str(telegram_id)),
+            ("notification_sent", "0"),
+        ])
+        data = {
+            "request_id": str(request_id),
+            "telegram_id": str(telegram_id),
+            "notification_sent": "0",
+        }
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=data,
+                headers=self._auth_headers(body_for_sig),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Save mapping response: {response.status}")
+                if response.status not in (200, 201):
+                    return None
+                payload = await response.json(content_type=None)
+                return payload if payload.get("success") else None
+        except Exception as e:
+            log_msg(f"[api] Failed to save mapping: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def get_request(self, request_id: int) -> dict | None:
+        url = self._request_url_candidates(f"/bot/mappings/{request_id}")
+        try:
+            session = await self._get_session()
+            async with session.get(
+                url,
+                headers=self._auth_headers(""),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Get mapping response: {response.status}")
+                if response.status != 200:
+                    return None
+                payload = await response.json(content_type=None)
+                return payload.get("mapping") if payload.get("success") else None
+        except Exception as e:
+            log_msg(f"[api] Failed to get mapping: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def mark_request_notified(self, request_id: int) -> dict | None:
+        url = self._request_url_candidates(f"/bot/mappings/{request_id}/notified")
+        body_for_sig = self._signed_body([("request_id", str(request_id))])
+        data = {"request_id": str(request_id)}
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=data,
+                headers=self._auth_headers(body_for_sig),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Mark notified response: {response.status}")
+                if response.status not in (200, 201):
+                    return None
+                return await response.json(content_type=None)
+        except Exception as e:
+            log_msg(f"[api] Failed to mark notified: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def claim_request_notification(self, request_id: int) -> dict | None:
+        url = self._request_url_candidates(f"/bot/mappings/{request_id}/claim")
+        body_for_sig = self._signed_body([("request_id", str(request_id))])
+        data = {"request_id": str(request_id)}
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=data,
+                headers=self._auth_headers(body_for_sig),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Claim response: {response.status}")
+                if response.status not in (200, 201):
+                    return None
+                payload = await response.json(content_type=None)
+                return payload if payload.get("success") else None
+        except Exception as e:
+            log_msg(f"[api] Failed to claim notification: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def release_request_notification(self, request_id: int) -> dict | None:
+        url = self._request_url_candidates(f"/bot/mappings/{request_id}/release")
+        body_for_sig = self._signed_body([("request_id", str(request_id))])
+        data = {"request_id": str(request_id)}
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                data=data,
+                headers=self._auth_headers(body_for_sig),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Release response: {response.status}")
+                if response.status not in (200, 201):
+                    return None
+                return await response.json(content_type=None)
+        except Exception as e:
+            log_msg(f"[api] Failed to release notification: {e}", level="ERROR")
+            return None
+
+    @async_with_retry()
+    async def get_pending_unnotified(self) -> list[dict]:
+        url = self._request_url_candidates("/bot/mappings")
+        try:
+            session = await self._get_session()
+            async with session.get(
+                url,
+                params={"notification_sent": "0"},
+                headers=self._auth_headers(""),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                log_msg(f"[api] Pending mappings response: {response.status}")
+                if response.status != 200:
+                    return []
+                payload = await response.json(content_type=None)
+                return payload.get("mappings", []) if payload.get("success") else []
+        except Exception as e:
+            log_msg(f"[api] Failed to get pending mappings: {e}", level="ERROR")
+            return []
+
     # ------------------------------------------------------------------
     # Auth helpers
     # ------------------------------------------------------------------
@@ -194,6 +437,9 @@ class ApiService:
             "X-Bot-Timestamp": timestamp,
             "X-Bot-Signature": signature,
         }
+
+    def _signed_body(self, fields: list[tuple[str, str]]) -> str:
+        return urlencode(fields, doseq=False)
 
     def _request_url_candidates(self, suffix: str):
         base = self.BASE.rstrip("/")

@@ -15,8 +15,8 @@
 │       │               │                                         │
 │       │         db/repository.py    services/api_service.py    │
 │       │               │                    │                    │
-│       │        bot_users table      POST /api/bot/requests      │
-│       │        bot_request_mappings ◄── request_id             │
+│       │      PHP-backed bot APIs      POST /api/bot/requests      │
+│       │      /api/bot/users           /api/bot/mappings          │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ 2. Multipart image upload + metadata
                            ▼
@@ -35,7 +35,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │         webhooks/callback_server.py (Flask, port 5055)          │
 │   Verifies HMAC signature                                       │
-│   Looks up telegram_id from bot_request_mappings               │
+│   Looks up telegram_id via /api/bot/mappings/{request_id}      │
 │   Calls request_service.notify_review_result()                  │
 │   Bot messages user with price / rejection reason               │
 └─────────────────────────────────────────────────────────────────┘
@@ -75,7 +75,10 @@ telegram_bot/
 │   └── callback_server.py        # Flask: receives review results from PHP
 ├── utils/
 │   ├── auth.py                   # HMAC helpers
+│   ├── logger.py                 # Standard logging setup
 │   └── retry.py                  # Retry decorator
+├── logs/
+│   └── reviewrequestbot.log      # Rotating app log file
 └── php_integration/
     └── BotController.php         # Drop into your existing app/Controllers/Api/
 ```
@@ -95,7 +98,17 @@ mysql -u root -p your_cms_db < db/migrations/001_bot_tables.sql
 
 # 4. Add BotController.php to your PHP app
 # Copy php_integration/BotController.php to app/Controllers/Api/
-# Register routes: POST /api/bot/requests, GET /api/bot/requests/{id}
+# Register routes:
+#   POST /api/bot/requests
+#   POST /api/bot/users
+#   GET  /api/bot/users/{telegram_id}
+#   POST /api/bot/users/{telegram_id}/phone
+#   GET  /api/bot/users/{telegram_id}/phone
+#   POST /api/bot/mappings
+#   GET  /api/bot/mappings/{request_id}
+#   POST /api/bot/mappings/{request_id}/claim
+#   POST /api/bot/mappings/{request_id}/notified
+#   POST /api/bot/mappings/{request_id}/release
 # Call $botController->sendReviewCallback($request) from your AdminController
 
 # 5. Add secrets to your PHP .env
@@ -147,8 +160,8 @@ Response 200:
 
 | Table | Purpose |
 |-------|---------|
-| `bot_users` | Telegram users; `telegram_id` is unique key |
-| `bot_request_mappings` | Maps `request_id` (from PHP) ↔ `telegram_id`; tracks notification status |
+| `bot_users` | Stored through the PHP bot API; `telegram_id` is unique key |
+| `bot_request_mappings` | Stored through the PHP bot API; maps `request_id` ↔ `telegram_id` and tracks notification status |
 
 Your existing CMS tables are **never modified**.
 

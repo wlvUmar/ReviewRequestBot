@@ -7,7 +7,7 @@ from config import Config
 from db.repository import BotRepository
 from services.api_service import ApiService
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from utils.logger import log_msg
 
 class RequestService:
@@ -91,9 +91,15 @@ class RequestService:
             log_msg(f"[notify] mapping not found for request_id={request_id}")
             return False
 
-        if not await self.repo.claim_request_notification(request_id):
+        claim = await self.repo.claim_request_notification(request_id)
+        if not claim:
             current_state = mapping.get("notification_sent")
             log_msg(f"[notify] claim failed for request_id={request_id} state={current_state}")
+            return current_state in (1, 2)
+
+        if not claim.get("claimed"):
+            current_state = claim.get("mapping", {}).get("notification_sent")
+            log_msg(f"[notify] claim already handled request_id={request_id} state={current_state}")
             return current_state in (1, 2)
 
         telegram_id = mapping["telegram_id"]
@@ -187,7 +193,7 @@ class RequestService:
         
         # Create inline keyboard with link button
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("Открыть запрос", url=access_link))
+        markup.add(InlineKeyboardButton("Открыть запрос", web_app=WebAppInfo(url=access_link)))
         
         # Notify all admins concurrently
         tasks = []
@@ -222,4 +228,3 @@ class RequestService:
             log_msg(f"[admin_notify] Error storing access token: {e}")
             import traceback
             log_msg(f"[admin_notify] Traceback: {traceback.format_exc()}")
-

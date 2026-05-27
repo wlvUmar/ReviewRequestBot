@@ -1,10 +1,11 @@
 import asyncio
-import traceback
 from config import Config
 from db.repository import BotRepository
 from services.api_service import ApiService
 from services.request_service import RequestService
-from utils.logger import log_msg
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class NotificationService:
@@ -45,10 +46,13 @@ class NotificationService:
                             status_payload.get("admin_notes") or status_payload.get("notes", ""),
                             status_payload.get("contact_phone", "")
                         )
-                        log_msg(f"[notifier] notify_review_result request_id={req_id} result={result}")
+                        logger.info(
+                            "[notifier] notify_review_result request_id=%s result=%s",
+                            req_id,
+                            result,
+                        )
             except Exception as e:
-                log_msg(f"[notifier] error: {e}")
-                log_msg(traceback.format_exc())
+                logger.exception("[notifier] error: %s", e)
             # Sleep until next poll
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self.interval)
