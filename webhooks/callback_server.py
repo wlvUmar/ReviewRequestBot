@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 def start_callback_server(bot, loop):
     """Start Flask server in background. Receives callbacks from PHP."""
     app = Flask(__name__)
+    logger.info("[callback] server starting on %s:%s", Config.CALLBACK_HOST, Config.CALLBACK_PORT)
 
     @app.route("/webhook/review-result", methods=["POST"])
     def review_result():
@@ -23,13 +24,16 @@ def start_callback_server(bot, loop):
         raw_body = request.get_data(as_text=True)
 
         if not _verify_signature(raw_body, timestamp, signature):
+            logger.warning("[callback] unauthorized request")
             return jsonify({"error": "unauthorized"}), 401
 
         if abs(time.time() - int(timestamp)) > 60:
+            logger.warning("[callback] request expired")
             return jsonify({"error": "request expired"}), 401
 
         data = request.get_json(silent=True)
         if not data or "request_id" not in data or "status" not in data:
+            logger.warning("[callback] invalid payload body=%s", raw_body[:500])
             return jsonify({"error": "invalid payload"}), 400
 
         request_id = int(data["request_id"])

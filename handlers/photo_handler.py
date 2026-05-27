@@ -62,12 +62,12 @@ def register_photo_handler(bot: AsyncTeleBot):
                     log_msg(f"[photo_handler] Photo limit reached for {telegram_id}")
                     await bot.send_message(
                         message.chat.id,
-                        f"⚠️ Максимум {Config.MAX_PHOTOS_PER_REQUEST} фото — только первые {Config.MAX_PHOTOS_PER_REQUEST} будут отправлены на оценку.\n\n👉 Нажмите кнопку, чтобы отправить на оценку." \
-                        f"📸 <b>Фото принято:</b> {Config.MAX_PHOTOS_PER_REQUEST}/{Config.MAX_PHOTOS_PER_REQUEST}\n\n"
-                        "📝 <b>Добавьте короткое описание:</b>\n"
+                        f"⚠️ Максимум {Config.MAX_PHOTOS_PER_REQUEST} фото — только первые {Config.MAX_PHOTOS_PER_REQUEST} будут отправлены на оценку.\n\n"
+                        "📝 Теперь отправьте краткую информацию о товаре:\n"
                         "— что это за вещь\n"
+                        "— состояние\n"
                         "— желаемая цена продажи\n\n"
-                        "👉 Когда будете готовы — нажмите кнопку для оценки",            
+                        "👉 Когда будете готовы — нажмите кнопку для оценки.",
                         reply_markup=markup
                     )
                     return
@@ -86,10 +86,10 @@ def register_photo_handler(bot: AsyncTeleBot):
 
             progress_text = (
                 f"📸 <b>Фото принято:</b> {count}/{Config.MAX_PHOTOS_PER_REQUEST}\n\n"
-                "📝 <b>Добавьте короткое описание:</b>\n"
+                "📝 <b>Теперь отправьте информацию о товаре:</b>\n"
                 "— что это за вещь\n"
+                "— состояние\n"
                 "— желаемая цена продажи\n\n"
-                "📷 Можно отправить ещё фото\n\n"
                 "👉 Когда будете готовы — нажмите кнопку для оценки"
             )
 
@@ -177,7 +177,10 @@ def register_photo_handler(bot: AsyncTeleBot):
         markup.add(InlineKeyboardButton("Отправить", callback_data="submit_request"))
         progress_text = (
             f"📸 Фото принято: {count}/{Config.MAX_PHOTOS_PER_REQUEST}\n\n"
-            "Можно отправить ещё фото или текст.\n"
+            "📝 Теперь отправьте информацию о товаре:\n"
+            "— что это за вещь\n"
+            "— состояние\n"
+            "— желаемая цена продажи\n\n"
             "Нажмите кнопку ниже, чтобы отправить на оценку."
         )
 
