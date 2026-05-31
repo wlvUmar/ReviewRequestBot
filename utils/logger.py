@@ -51,18 +51,3 @@ def get_logger(name: str | None = None) -> logging.Logger:
     if not name or name == _LOGGER_NAME:
         return logging.getLogger(_LOGGER_NAME)
     return logging.getLogger(f"{_LOGGER_NAME}.{name}")
-
-
-logger = get_logger()
-
-
-def log_msg(msg: str, level: str = "INFO") -> None:
-    level_name = level.upper()
-    level_map = {
-        "DEBUG": logging.DEBUG,
-        "INFO": logging.INFO,
-        "WARNING": logging.WARNING,
-        "ERROR": logging.ERROR,
-        "CRITICAL": logging.CRITICAL,
-    }
-    logger.log(level_map.get(level_name, logging.INFO), msg)

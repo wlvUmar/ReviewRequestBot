@@ -4,3 +4,4 @@ aiohttp==3.9.1
 aiomysql==0.2.0
 flask==3.0.3
 python-dotenv==1.0.1
+redis>=4.6.0

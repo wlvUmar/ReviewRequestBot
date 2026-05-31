@@ -1,0 +1,316 @@
+2026-05-30 16:16:23 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 16:16:23 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 16:16:23 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 16:16:23 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 16:16:23 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 16:16:23 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 16:16:23 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 16:16:23 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 16:16:47 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 16:16:48 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 16:42:47 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 16:42:47 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 16:42:47 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 16:42:47 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 16:42:47 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 16:42:47 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 16:42:47 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 16:42:47 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 16:42:55 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 16:42:55 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 16:44:46 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 16:44:46 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 16:44:46 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 16:44:46 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 16:44:46 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 16:44:46 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 16:44:46 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 16:44:46 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 16:44:49 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 16:44:49 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 16:51:01 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 16:51:01 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 16:51:01 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 16:51:01 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 16:51:01 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 16:51:01 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 16:51:01 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 16:51:01 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 16:51:07 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 16:51:07 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 16:51:07 [ERROR] reviewrequestbot.__main__: [bot] Handler exception:
+Traceback (most recent call last):
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\async_telebot.py", line 537, in _run_middlewares_and_handlers
+    result = await handler['function'](message)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\handlers\start_handler.py", line 49, in handle_start
+    await _set_state(message.chat.id, telegram_id, "awaiting_lang")
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\handlers\start_handler.py", line 25, in _set_state
+    await bot.set_state(user_id, state, chat_id=chat_id)
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\async_telebot.py", line 7749, in set_state
+    await self.current_states.set_state(chat_id, user_id, state)
+TypeError: object bool can't be used in 'await' expression
+
+2026-05-30 16:58:10 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 16:58:10 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 16:58:10 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 16:58:10 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 16:58:10 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 16:58:10 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 16:58:10 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 16:58:10 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 16:58:41 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 16:58:42 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 16:58:53 [INFO] reviewrequestbot: [start_handler] Got phone for 1360926475: +998937247704
+2026-05-30 16:58:53 [INFO] reviewrequestbot: [api] Save phone response: 200
+2026-05-30 16:59:01 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdfsdfsdf
+2026-05-30 16:59:01 [INFO] reviewrequestbot: [text_handler] Received text in state=awaiting_photo from 1360926475, sending help
+2026-05-30 16:59:01 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: \
+2026-05-30 16:59:01 [INFO] reviewrequestbot: [text_handler] Received text in state=awaiting_photo from 1360926475, sending help
+2026-05-30 16:59:04 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdfsdf
+2026-05-30 16:59:04 [INFO] reviewrequestbot: [text_handler] Received text in state=awaiting_photo from 1360926475, sending help
+2026-05-30 16:59:06 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: dfsdf\sdf\df
+2026-05-30 16:59:06 [INFO] reviewrequestbot: [text_handler] Received text in state=awaiting_photo from 1360926475, sending help
+2026-05-30 16:59:06 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdf
+2026-05-30 16:59:06 [INFO] reviewrequestbot: [text_handler] Received text in state=awaiting_photo from 1360926475, sending help
+2026-05-30 16:59:06 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdf
+2026-05-30 16:59:06 [INFO] reviewrequestbot: [text_handler] Received text in state=awaiting_photo from 1360926475, sending help
+2026-05-30 16:59:32 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 16:59:42 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: 2323
+2026-05-30 16:59:42 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description
+2026-05-30 16:59:42 [INFO] reviewrequestbot: [submit] Starting submission for telegram_id=1360926475
+2026-05-30 16:59:42 [INFO] reviewrequestbot: [submit] Downloading 1 image(s) from Telegram
+2026-05-30 16:59:42 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 16:59:42 [INFO] reviewrequestbot: [image] File info: path=photos/file_0.jpg
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [image] Downloaded file_0.jpg: 0.11 MB
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [submit] Downloaded 1 image(s)
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [submit] Calling PHP API to create product request...
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Creating product request at https://kuplyu-tashkent.uz/api/bot/requests
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] telegram_id=1360926475, photo_count=1
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] photo#1 filename=file_0.jpg, image_size=117744 bytes
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Response status: 201
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Response body: {"success":true,"request_id":46}
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Success! Got request_id=46
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [submit] API returned request_id=46
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [submit] Saving request mapping...
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Save mapping response: 201
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [submit] Request mapping saved
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [submit] Notifying admins...
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [admin_notify] Storing access token for request 46, token=jSk22pglKZnSn4jD...
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Creating access token for request 46
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Token response status: 201
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [api] Token created successfully
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [admin_notify] Access token stored successfully for request 46
+2026-05-30 16:59:43 [INFO] reviewrequestbot: [admin_notify] Failed to notify admin 123456789: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: chat not found
+2026-05-30 16:59:44 [INFO] reviewrequestbot: [admin_notify] Failed to notify admin 987654321: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: chat not found
+2026-05-30 17:00:20 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdf
+2026-05-30 17:00:20 [INFO] reviewrequestbot: [text_handler] Received text in state=awaiting_photo from 1360926475, sending help
+2026-05-30 17:00:53 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 17:00:53 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 17:00:53 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 17:26:21 [ERROR] reviewrequestbot.__main__: [bot] Handler exception:
+Traceback (most recent call last):
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\async_telebot.py", line 433, in _process_polling
+    updates = await self.get_updates(offset=self.offset, allowed_updates=allowed_updates, timeout=timeout, request_timeout=request_timeout)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\async_telebot.py", line 227, in get_updates
+    json_updates = await asyncio_helper.get_updates(self.token, offset, limit, timeout, allowed_updates, request_timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\asyncio_helper.py", line 250, in get_updates
+    return await _process_request(token, method_name, params=params, request_timeout=request_timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\asyncio_helper.py", line 105, in _process_request
+    raise RequestTimeout("Request timeout. Request: method={0} url={1} params={2} files={3} request_timeout={4}".format(method, url, params, files, request_timeout, current_try))
+telebot.asyncio_helper.RequestTimeout: Request timeout. Request: method=get url=getUpdates params=<aiohttp.formdata.FormData object at 0x000001FD9C9F76E0> files=None request_timeout=300
+
+2026-05-30 18:47:34 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 18:47:34 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 18:47:34 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 18:47:34 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 18:47:34 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 18:47:34 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 18:47:34 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 18:47:34 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 18:47:39 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 18:47:40 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 18:47:40 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:47:40 [INFO] reviewrequestbot: [start_handler] Phone already on file for 1360926475, skipping ask
+2026-05-30 18:48:14 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:48:14 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:48:14 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:48:46 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: dsdsf TESTING
+2026-05-30 18:48:46 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:49:08 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdfsdfsd
+2026-05-30 18:49:08 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:49:18 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdsdfsdf
+2026-05-30 18:49:18 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:49:19 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdf
+2026-05-30 18:49:19 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:49:20 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdf
+2026-05-30 18:49:20 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:49:20 [INFO] reviewrequestbot: [text_handler] Failed to send/edit preview for 1360926475
+2026-05-30 18:49:21 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdff
+2026-05-30 18:49:21 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:51:34 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 18:51:34 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 18:51:34 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 18:51:34 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 18:51:34 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 18:51:34 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 18:51:34 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 18:51:34 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 18:51:38 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 18:51:39 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 18:51:39 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:51:39 [INFO] reviewrequestbot: [start_handler] Phone already on file for 1360926475, skipping ask
+2026-05-30 18:51:48 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:51:49 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:51:55 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: sdfsdfsdsf test
+2026-05-30 18:51:55 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:52:17 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: so
+2026-05-30 18:52:17 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:52:18 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: what
+2026-05-30 18:52:18 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:52:26 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: why am i not recieving anything
+2026-05-30 18:52:26 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:52:31 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: are u kidding me
+2026-05-30 18:52:31 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:55:13 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 18:55:13 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 18:55:13 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 18:55:13 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 18:55:13 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 18:55:13 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 18:55:13 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 18:55:13 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 18:55:17 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 18:55:18 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 18:55:18 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:55:18 [INFO] reviewrequestbot: [start_handler] Phone already on file for 1360926475, skipping ask
+2026-05-30 18:55:26 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:55:27 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:55:27 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:55:28 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:55:36 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: dsfsfa test
+2026-05-30 18:55:36 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:58:33 [INFO] reviewrequestbot.__main__: [bot] Initializing async bot...
+2026-05-30 18:58:33 [INFO] reviewrequestbot.__main__: [bot] Registering handlers...
+2026-05-30 18:58:33 [INFO] reviewrequestbot.__main__: [bot] Handlers registered successfully
+2026-05-30 18:58:33 [INFO] reviewrequestbot.__main__: [bot] Starting Flask callback server on port 5055
+2026-05-30 18:58:33 [INFO] reviewrequestbot.webhooks.callback_server: [callback] server starting on 0.0.0.0:5055
+2026-05-30 18:58:33 [INFO] reviewrequestbot.__main__: [bot] Notification polling disabled; using callback server only
+2026-05-30 18:58:33 [INFO] reviewrequestbot.__main__: [bot] Bot is running...
+2026-05-30 18:58:33 [INFO] reviewrequestbot.__main__: [bot] Starting polling (listening for messages)...
+2026-05-30 18:58:37 [INFO] reviewrequestbot: [start_handler] /start from 1360926475 (umar亗)
+2026-05-30 18:58:38 [INFO] reviewrequestbot: [api] Upsert user response: 201
+2026-05-30 18:58:38 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:58:38 [INFO] reviewrequestbot: [start_handler] Phone already on file for 1360926475, skipping ask
+2026-05-30 18:58:46 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:58:47 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:58:47 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:58:52 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: dsfsdfs test
+2026-05-30 18:58:52 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:58:53 [INFO] reviewrequestbot: [text_handler] Sent preview for 1360926475
+2026-05-30 18:58:57 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: Dsas
+2026-05-30 18:58:57 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:58:57 [INFO] reviewrequestbot: [text_handler] Updated preview for 1360926475
+2026-05-30 18:59:01 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: DSF
+2026-05-30 18:59:01 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 18:59:01 [INFO] reviewrequestbot: [text_handler] Updated preview for 1360926475
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [submit] Starting submission for telegram_id=1360926475
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [submit] Downloading 3 image(s) from Telegram
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [image] File info: path=photos/file_1.jpg
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [image] File info: path=photos/file_2.jpg
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [image] File info: path=photos/file_3.jpg
+2026-05-30 18:59:06 [INFO] reviewrequestbot: [image] Downloaded file_1.jpg: 0.13 MB
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [image] Downloaded file_3.jpg: 0.09 MB
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [image] Downloaded file_2.jpg: 0.13 MB
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [submit] Downloaded 3 image(s)
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [submit] Calling PHP API to create product request...
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] Creating product request at https://kuplyu-tashkent.uz/api/bot/requests
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] telegram_id=1360926475, photo_count=3
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] photo#1 filename=file_1.jpg, image_size=138834 bytes
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] photo#2 filename=file_2.jpg, image_size=131202 bytes
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] photo#3 filename=file_3.jpg, image_size=98679 bytes
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] Response status: 201
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] Response body: {"success":true,"request_id":48}
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [api] Success! Got request_id=48
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [submit] API returned request_id=48
+2026-05-30 18:59:07 [INFO] reviewrequestbot: [submit] Saving request mapping...
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [api] Save mapping response: 201
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [submit] Request mapping saved
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [submit] Notifying admins...
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [admin_notify] Storing access token for request 48, token=i2Fmf5klsrUwPdyH...
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [api] Creating access token for request 48
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [api] Token response status: 201
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [api] Token created successfully
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [admin_notify] Access token stored successfully for request 48
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [admin_notify] Failed to notify admin 123456789: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: chat not found
+2026-05-30 18:59:08 [INFO] reviewrequestbot: [admin_notify] Failed to notify admin 987654321: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: chat not found
+2026-05-30 18:59:44 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:59:44 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:59:44 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 18:59:44 [INFO] reviewrequestbot: [api] Get user response: 200
+2026-05-30 19:00:09 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: SDF 
+new
+100000
+2026-05-30 19:00:09 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 19:00:10 [INFO] reviewrequestbot: [text_handler] Sent preview for 1360926475
+2026-05-30 19:00:30 [INFO] reviewrequestbot: [text_handler] Text message from 1360926475: DS
+2026-05-30 19:00:30 [INFO] reviewrequestbot: [text_handler] Found pending photos for 1360926475, treating as description (preview mode)
+2026-05-30 19:00:30 [INFO] reviewrequestbot: [text_handler] Updated preview for 1360926475
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [submit] Starting submission for telegram_id=1360926475
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [submit] Downloading 4 image(s) from Telegram
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] Downloading from Telegram API...
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] File info: path=photos/file_4.jpg
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] File info: path=photos/file_2.jpg
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] File info: path=photos/file_1.jpg
+2026-05-30 19:00:33 [INFO] reviewrequestbot: [image] File info: path=photos/file_5.jpg
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [image] Downloaded file_2.jpg: 0.13 MB
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [image] Downloaded file_4.jpg: 0.12 MB
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [image] Downloaded file_1.jpg: 0.13 MB
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [image] Downloaded file_5.jpg: 0.12 MB
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [submit] Downloaded 4 image(s)
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [submit] Calling PHP API to create product request...
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] Creating product request at https://kuplyu-tashkent.uz/api/bot/requests
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] telegram_id=1360926475, photo_count=4
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] photo#1 filename=file_4.jpg, image_size=124936 bytes
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] photo#2 filename=file_1.jpg, image_size=138834 bytes
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] photo#3 filename=file_5.jpg, image_size=128213 bytes
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] photo#4 filename=file_2.jpg, image_size=131202 bytes
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] Response status: 201
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] Response body: {"success":true,"request_id":49}
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] Success! Got request_id=49
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [submit] API returned request_id=49
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [submit] Saving request mapping...
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] Save mapping response: 201
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [submit] Request mapping saved
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [submit] Notifying admins...
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [admin_notify] Storing access token for request 49, token=8EwHt2qPLwSmhK0S...
+2026-05-30 19:00:34 [INFO] reviewrequestbot: [api] Creating access token for request 49
+2026-05-30 19:00:35 [INFO] reviewrequestbot: [api] Token response status: 201
+2026-05-30 19:00:35 [INFO] reviewrequestbot: [api] Token created successfully
+2026-05-30 19:00:35 [INFO] reviewrequestbot: [admin_notify] Access token stored successfully for request 49
+2026-05-30 19:00:35 [INFO] reviewrequestbot: [admin_notify] Failed to notify admin 123456789: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: chat not found
+2026-05-30 19:00:35 [INFO] reviewrequestbot: [admin_notify] Failed to notify admin 987654321: A request to the Telegram API was unsuccessful. Error code: 400. Description: Bad Request: chat not found
+2026-05-30 19:21:26 [ERROR] reviewrequestbot.__main__: [bot] Handler exception:
+Traceback (most recent call last):
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\async_telebot.py", line 433, in _process_polling
+    updates = await self.get_updates(offset=self.offset, allowed_updates=allowed_updates, timeout=timeout, request_timeout=request_timeout)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\async_telebot.py", line 227, in get_updates
+    json_updates = await asyncio_helper.get_updates(self.token, offset, limit, timeout, allowed_updates, request_timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\asyncio_helper.py", line 250, in get_updates
+    return await _process_request(token, method_name, params=params, request_timeout=request_timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tolib\Documents\GitHub\ReviewRequestBot\.venv\Lib\site-packages\telebot\asyncio_helper.py", line 105, in _process_request
+    raise RequestTimeout("Request timeout. Request: method={0} url={1} params={2} files={3} request_timeout={4}".format(method, url, params, files, request_timeout, current_try))
+telebot.asyncio_helper.RequestTimeout: Request timeout. Request: method=get url=getUpdates params=<aiohttp.formdata.FormData object at 0x000001BB03F1FB90> files=None request_timeout=300
+

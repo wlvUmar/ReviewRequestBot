@@ -1,6 +1,8 @@
 # db/repository.py — Bot storage now goes through the PHP backend API.
 from services.api_service import ApiService
-from utils.logger import log_msg
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class BotRepository:
@@ -38,16 +40,16 @@ class BotRepository:
     async def claim_request_notification(self, request_id: int) -> dict | None:
         payload = await self.api.claim_request_notification(request_id)
         if not payload:
-            log_msg(f"[repo] claim missing request_id={request_id}")
+            logger.warning(f"[repo] claim missing request_id={request_id}")
             return None
 
         mapping = payload.get("mapping", {})
         state = mapping.get("notification_sent")
         if payload.get("claimed"):
-            log_msg(f"[repo] claim acquired request_id={request_id}")
+            logger.info(f"[repo] claim acquired request_id={request_id}")
             return payload
 
-        log_msg(f"[repo] claim already handled request_id={request_id} state={state}")
+        logger.debug(f"[repo] claim already handled request_id={request_id} state={state}")
         return payload
 
     async def release_request_notification(self, request_id: int) -> None:

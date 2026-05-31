@@ -1,5 +1,3 @@
-# services/api_service.py — Handles ALL communication with the PHP backend (async).
-# No business logic. No Telegram code. Just HTTP.
 import asyncio
 import hmac
 import hashlib
@@ -8,8 +6,9 @@ import aiohttp
 from urllib.parse import urlencode
 from config import Config
 from utils.retry import async_with_retry
-from utils.logger import log_msg
+from utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 class ApiService:
     """
@@ -28,7 +27,6 @@ class ApiService:
     SECRET = Config.PHP_API_SECRET
 
     def __init__(self):
-        # FIX: single shared session instead of one per request
         self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -62,8 +60,8 @@ class ApiService:
         }
         """
         url = self._request_url_candidates("/bot/requests")
-        log_msg(f"[api] Creating product request at {url}")
-        log_msg(f"[api] telegram_id={telegram_id}, photo_count={len(images)}")
+        logger.debug(f"[api] Creating product request at {url}")
+        logger.debug(f"[api] telegram_id={telegram_id}, photo_count={len(images)}")
 
         body_for_sig = self._signed_body([
             ("telegram_id", str(telegram_id)),
@@ -75,7 +73,7 @@ class ApiService:
         form.add_field("description", description)
 
         for index, (image_bytes, filename) in enumerate(images):
-            log_msg(f"[api] photo#{index + 1} filename={filename}, image_size={len(image_bytes)} bytes")
+            logger.debug(f"[api] photo#{index + 1} filename={filename}, image_size={len(image_bytes)} bytes")
             form.add_field("images[]", image_bytes, filename=filename, content_type="image/jpeg")
 
         headers = self._auth_headers(body_for_sig)
@@ -88,28 +86,28 @@ class ApiService:
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=20),
             ) as response:
-                log_msg(f"[api] Response status: {response.status}")
+                logger.debug(f"[api] Response status: {response.status}")
                 text = await response.text()
-                log_msg(f"[api] Response body: {text[:500]}")
+                logger.debug(f"[api] Response body: {text[:500]}")
 
                 if response.status not in (200, 201):
-                    log_msg(f"[api] HTTP error: {response.status}", level="ERROR")
+                    logger.error(f"[api] HTTP error: {response.status}")
                     return None
 
                 payload = await response.json(content_type=None)
                 if payload.get("success") and "request_id" in payload:
-                    log_msg(f"[api] Success! Got request_id={payload['request_id']}")
+                    logger.debug(f"[api] Success! Got request_id={payload['request_id']}")
                     return {"request_id": int(payload["request_id"])}
 
-                log_msg(f"[api] Unexpected response: {payload}", level="ERROR")
+                logger.error(f"[api] Unexpected response: {payload}")
                 return None
 
         except asyncio.TimeoutError as e:
-            log_msg(f"[api] Timeout error: {e}", level="ERROR")
+            logger.error(f"[api] Timeout error: {e}")
         except aiohttp.ClientError as e:
-            log_msg(f"[api] Connection error: {e}", level="ERROR")
+            logger.error(f"[api] Connection error: {e}")
         except Exception as e:
-            log_msg(f"[api] Request error: {e}", level="ERROR")
+            logger.error(f"[api] Request error: {e}")
 
         return None
 
@@ -128,7 +126,7 @@ class ApiService:
         }
         """
         url = self._request_url_candidates(f"/bot/requests/{request_id}")
-        log_msg(f"[api] Getting request status at {url}")
+        logger.debug(f"[api] Getting request status at {url}")
 
         try:
             session = await self._get_session()
@@ -137,13 +135,13 @@ class ApiService:
                 headers=self._auth_headers(""),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Status response: {response.status}")
+                logger.debug(f"[api] Status response: {response.status}")
                 if response.status != 200:
-                    log_msg(f"[api] HTTP error: {response.status}", level="ERROR")
+                    logger.error(f"[api] HTTP error: {response.status}")
                     return None
                 return await response.json(content_type=None)
         except Exception as e:
-            log_msg(f"[api] Failed to get request status: {e}", level="ERROR")
+            logger.error(f"[api] Failed to get request status: {e}")
 
         return None
 
@@ -153,7 +151,7 @@ class ApiService:
         POST /api/bot/access-token
         """
         url = self._request_url_candidates("/bot/access-token")
-        log_msg(f"[api] Creating access token for request {request_id}")
+        logger.debug(f"[api] Creating access token for request {request_id}")
 
         body_for_sig = self._signed_body([
             ("request_id", str(request_id)),
@@ -173,15 +171,15 @@ class ApiService:
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Token response status: {response.status}")
+                logger.debug(f"[api] Token response status: {response.status}")
                 if response.status not in (200, 201):
-                    log_msg(f"[api] HTTP error: {response.status}", level="ERROR")
+                    logger.error(f"[api] HTTP error: {response.status}")
                     return None
                 result = await response.json(content_type=None)
-                log_msg(f"[api] Token created successfully")
+                logger.debug(f"[api] Token created successfully")
                 return result
         except Exception as e:
-            log_msg(f"[api] Failed to create access token: {e}", level="ERROR")
+            logger.error(f"[api] Failed to create access token: {e}")
 
         return None
 
@@ -209,13 +207,13 @@ class ApiService:
                 headers=self._auth_headers(body_for_sig),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Upsert user response: {response.status}")
+                logger.debug(f"[api] Upsert user response: {response.status}")
                 if response.status not in (200, 201):
                     return None
                 payload = await response.json(content_type=None)
                 return payload if payload.get("success") else None
         except Exception as e:
-            log_msg(f"[api] Failed to upsert user: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to upsert user: {e}")
             return None
 
     @async_with_retry()
@@ -228,13 +226,13 @@ class ApiService:
                 headers=self._auth_headers(""),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Get user response: {response.status}")
+                logger.debug(f"[api] Get user response: {response.status}")
                 if response.status != 200:
                     return None
                 payload = await response.json(content_type=None)
                 return payload.get("user") if payload.get("success") else None
         except Exception as e:
-            log_msg(f"[api] Failed to get user: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to get user: {e}")
             return None
 
     @async_with_retry()
@@ -256,13 +254,13 @@ class ApiService:
                 headers=self._auth_headers(body_for_sig),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Save phone response: {response.status}")
+                logger.debug(f"[api] Save phone response: {response.status}")
                 if response.status not in (200, 201):
                     return False
                 payload = await response.json(content_type=None)
                 return bool(payload.get("success"))
         except Exception as e:
-            log_msg(f"[api] Failed to save phone: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to save phone: {e}")
             return False
 
     @async_with_retry()
@@ -275,13 +273,13 @@ class ApiService:
                 headers=self._auth_headers(""),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Get phone response: {response.status}")
+                logger.debug(f"[api] Get phone response: {response.status}")
                 if response.status != 200:
                     return None
                 payload = await response.json(content_type=None)
                 return payload.get("phone") if payload.get("success") else None
         except Exception as e:
-            log_msg(f"[api] Failed to get phone: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to get phone: {e}")
             return None
 
     @async_with_retry()
@@ -306,13 +304,13 @@ class ApiService:
                 headers=self._auth_headers(body_for_sig),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Save mapping response: {response.status}")
+                logger.debug(f"[api] Save mapping response: {response.status}")
                 if response.status not in (200, 201):
                     return None
                 payload = await response.json(content_type=None)
                 return payload if payload.get("success") else None
         except Exception as e:
-            log_msg(f"[api] Failed to save mapping: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to save mapping: {e}")
             return None
 
     @async_with_retry()
@@ -325,13 +323,13 @@ class ApiService:
                 headers=self._auth_headers(""),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Get mapping response: {response.status}")
+                logger.debug(f"[api] Get mapping response: {response.status}")
                 if response.status != 200:
                     return None
                 payload = await response.json(content_type=None)
                 return payload.get("mapping") if payload.get("success") else None
         except Exception as e:
-            log_msg(f"[api] Failed to get mapping: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to get mapping: {e}")
             return None
 
     @async_with_retry()
@@ -348,12 +346,12 @@ class ApiService:
                 headers=self._auth_headers(body_for_sig),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Mark notified response: {response.status}")
+                logger.debug(f"[api] Mark notified response: {response.status}")
                 if response.status not in (200, 201):
                     return None
                 return await response.json(content_type=None)
         except Exception as e:
-            log_msg(f"[api] Failed to mark notified: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to mark notified: {e}")
             return None
 
     @async_with_retry()
@@ -370,13 +368,13 @@ class ApiService:
                 headers=self._auth_headers(body_for_sig),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Claim response: {response.status}")
+                logger.debug(f"[api] Claim response: {response.status}")
                 if response.status not in (200, 201):
                     return None
                 payload = await response.json(content_type=None)
                 return payload if payload.get("success") else None
         except Exception as e:
-            log_msg(f"[api] Failed to claim notification: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to claim notification: {e}")
             return None
 
     @async_with_retry()
@@ -393,12 +391,12 @@ class ApiService:
                 headers=self._auth_headers(body_for_sig),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Release response: {response.status}")
+                logger.debug(f"[api] Release response: {response.status}")
                 if response.status not in (200, 201):
                     return None
                 return await response.json(content_type=None)
         except Exception as e:
-            log_msg(f"[api] Failed to release notification: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to release notification: {e}")
             return None
 
     @async_with_retry()
@@ -412,13 +410,13 @@ class ApiService:
                 headers=self._auth_headers(""),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                log_msg(f"[api] Pending mappings response: {response.status}")
+                logger.debug(f"[api] Pending mappings response: {response.status}")
                 if response.status != 200:
                     return []
                 payload = await response.json(content_type=None)
                 return payload.get("mappings", []) if payload.get("success") else []
         except Exception as e:
-            log_msg(f"[api] Failed to get pending mappings: {e}", level="ERROR")
+            logger.warning(f"[api] Failed to get pending mappings: {e}")
             return []
 
     # ------------------------------------------------------------------
@@ -444,3 +442,5 @@ class ApiService:
     def _request_url_candidates(self, suffix: str):
         base = self.BASE.rstrip("/")
         return f"{base}/api{suffix}"
+
+

@@ -167,7 +167,7 @@ Your existing CMS tables are **never modified**.
 
 ## Scaling Notes
 
-- Replace `_pending_photos` dict in `photo_handler.py` with a Redis key (`bot:pending:{telegram_id}`) for multi-process/multi-server deployments.
+- Pending user flow data (photos/albums/caption/progress) is stored in Redis via TeleBot `StateRedisStorage` (`get_data`/`set_data`) for multi-process safety.
 - Run the Flask callback server behind nginx for HTTPS (required for production).
 - For high volume, move `with_retry` to a task queue (Celery + Redis).
 - Future multi-admin: add `admin_id` to PHP `product_requests` table; no bot changes needed.

@@ -1,48 +1,149 @@
-# handlers/photo_handler.py — Captures product photos (async).
 import asyncio
+from typing import TypedDict
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from config import Config
 from services.request_service import RequestService
 from db.repository import BotRepository
-from utils.logger import log_msg
+from utils.logger import get_logger
+from utils.i18n import t
 
-_pending_photos: dict[int, list[str]] = {}
-_submit_prompt_messages: dict[int, int] = {}
-_submit_progress_counts: dict[int, int] = {}
-_pending_albums: dict[str, dict] = {}
-_user_locks: dict[int, asyncio.Lock] = {}
-_pending_captions: dict[int, str] = {}
+logger = get_logger(__name__)
+
+class AlbumBatch(TypedDict):
+    chat_id: int
+    file_ids: list[str]
+
 
 _repo = BotRepository()
+_user_locks: dict[int, asyncio.Lock] = {}
+_locks_guard = asyncio.Lock()
+_album_flush_timers: dict[tuple[int, int, str], asyncio.Task[None]] = {}
 
 
-def _get_user_lock(telegram_id: int) -> asyncio.Lock:
-    """Get or create a per-user lock."""
-    if telegram_id not in _user_locks:
-        _user_locks[telegram_id] = asyncio.Lock()
-    return _user_locks[telegram_id]
+async def _get_user_lock(telegram_id: int) -> asyncio.Lock:
+    async with _locks_guard:
+        if telegram_id not in _user_locks:
+            _user_locks[telegram_id] = asyncio.Lock()
+        return _user_locks[telegram_id]
+
+
+async def finalize_submission(bot: AsyncTeleBot, message: Message, telegram_id: int, description: str) -> None:
+    chat_id = message.chat.id
+
+    async def _get_data() -> dict:
+        res = bot.current_states.get_data(chat_id, telegram_id) if bot.current_states else {}
+        if asyncio.iscoroutine(res):
+            res = await res
+        return res or {}
+
+    async def _set_data(data: dict) -> None:
+        res = bot.current_states.reset_data(chat_id, telegram_id)  if bot.current_states else {}
+        if asyncio.iscoroutine(res):
+            await res
+        for key, value in data.items():
+            r = bot.current_states.set_data(chat_id, telegram_id, key, value)  if bot.current_states else {}
+            if asyncio.iscoroutine(r):
+                await r
+
+    data = await _get_data()
+    lang = data.get("lang", "ru")
+    file_ids: list[str] = data.pop("pending_photos", [])
+    caption: str = data.pop("pending_caption", "")
+    desired_price: str = data.pop("desired_price", "")
+    data.pop("pending_albums", None)
+    data.pop("pending_description", None)
+    preview = data.pop("preview", None)
+    await _set_data(data)
+
+    if caption and description:
+        full_description = caption + "\n" + description
+    else:
+        full_description = caption or description
+
+    if desired_price:
+        full_description = f"{full_description}\n💰 {t(lang, 'desired_price_label')}: {desired_price}".strip()
+
+    if not file_ids:
+        await bot.send_message(chat_id, t(lang, "send_photo_first"))
+        return
+
+    try:
+        if preview:
+            await bot.delete_message(preview["chat_id"], preview["message_id"])
+    except Exception:
+        pass
+
+    await bot.send_message(chat_id, f"⏳ Отправляем {len(file_ids)} фото на оценку...")
+    svc = RequestService(bot, _repo)
+    await svc.submit_product_request(
+        chat_id=chat_id,
+        telegram_id=telegram_id,
+        file_ids=file_ids,
+        description=full_description,
+    )
 
 
 def register_photo_handler(bot: AsyncTeleBot):
+    async def _get_data(chat_id: int, user_id: int) -> dict:
+        if bot.current_states:
+            res = bot.current_states.get_data(chat_id, user_id)
+            if asyncio.iscoroutine(res):
+                res = await res
+            return res or {}
+        return {}
+
+    async def _set_data(chat_id: int, user_id: int, data: dict) -> None:
+        if bot.current_states:
+            res = bot.current_states.reset_data(chat_id, user_id)
+            if asyncio.iscoroutine(res):
+                await res
+            for key, value in data.items():
+                r = bot.current_states.set_data(chat_id, user_id, key, value)
+                if asyncio.iscoroutine(r):
+                    await r
+
+    async def _get_state(chat_id: int, user_id: int):
+        res = bot.get_state(user_id, chat_id=chat_id)
+        if asyncio.iscoroutine(res):
+            res = await res
+        return res
+
+    async def _set_state(chat_id: int, user_id: int, state: str):
+        res = bot.set_state(user_id, state, chat_id=chat_id)
+        if asyncio.iscoroutine(res):
+            await res
+
     @bot.message_handler(content_types=["photo"])
     async def handle_photo(message: Message):
         telegram_id = message.from_user.id
-        user = await _repo.get_user(telegram_id)
-        if not user or not user.get("phone"):
-            markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-            markup.add(KeyboardButton("📱 Поделиться номером", request_contact=True))
-            await bot.send_message(
-                message.chat.id,
-                "⚠️ Сначала поделитесь номером телефона.",
-                reply_markup=markup
-            )
+        chat_id = message.chat.id
+
+        if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
+            logger.debug(f"[photo_handler] Ignoring message from admin {telegram_id}")
             return
 
-        log_msg(f"[photo_handler] Photo received from {message.from_user.id}")
-        user_lock = _get_user_lock(telegram_id)
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("Отправить", callback_data="submit_request"))
+        user_lock = await _get_user_lock(telegram_id)
+
+        data = await _get_data(chat_id, telegram_id)
+        lang = data.get("lang", "ru")
+        state = await _get_state(chat_id, telegram_id)
+
+        user = await _repo.get_user(telegram_id)
+        if not user or not user.get("phone"):
+            await _set_state(chat_id, telegram_id, "awaiting_phone")
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            markup.add(KeyboardButton(t(lang, "share_phone"), request_contact=True))
+            await bot.send_message(chat_id, t(lang, "phone_prompt"), reply_markup=markup)
+            return
+
+        if state is None:
+            await _set_state(chat_id, telegram_id, "awaiting_photo")
+            state = "awaiting_photo"
+
+        if state not in ("awaiting_photo", "awaiting_description"):
+            await bot.send_message(chat_id, t(lang, "use_start_first"))
+            return
 
         if message.photo:
             photo = message.photo[-1]
@@ -50,204 +151,141 @@ def register_photo_handler(bot: AsyncTeleBot):
             media_group_id = getattr(message, "media_group_id", None)
 
             if media_group_id:
-                await _queue_album_photo(bot, message, telegram_id, media_group_id, file_id)
+                await _queue_album_photo(message, telegram_id, media_group_id, file_id)
                 return
 
-            async with user_lock:
-                if message.caption:
-                    _pending_captions[telegram_id] = message.caption
-                current = _pending_photos.get(telegram_id, [])
+        else: 
+            file_id = "0"
 
-                if len(current) >= Config.MAX_PHOTOS_PER_REQUEST:
-                    log_msg(f"[photo_handler] Photo limit reached for {telegram_id}")
-                    await bot.send_message(
-                        message.chat.id,
-                        f"⚠️ Максимум {Config.MAX_PHOTOS_PER_REQUEST} фото — только первые {Config.MAX_PHOTOS_PER_REQUEST} будут отправлены на оценку.\n\n"
-                        "📝 Теперь отправьте краткую информацию о товаре:\n"
-                        "— что это за вещь\n"
-                        "— состояние\n"
-                        "— желаемая цена продажи\n\n"
-                        "👉 Когда будете готовы — нажмите кнопку для оценки.",
-                        reply_markup=markup
-                    )
-                    return
-
-                current.append(file_id)
-                _pending_photos[telegram_id] = current
-                count = len(current)
-                prev_prompt_id = _submit_prompt_messages.get(telegram_id)
-                prev_progress = _submit_progress_counts.get(telegram_id, 0)
-                if count <= prev_progress:
-                    log_msg(f"[photo_handler] Skipping stale progress update for {telegram_id}: {count} <= {prev_progress}")
-                    return
-                _submit_progress_counts[telegram_id] = count
-                log_msg(f"[photo_handler] Photo stored in pending: {file_id[:20]}... (total={count})")
-
-
-            progress_text = (
-                f"📸 <b>Фото принято:</b> {count}/{Config.MAX_PHOTOS_PER_REQUEST}\n\n"
-                "📝 <b>Теперь отправьте информацию о товаре:</b>\n"
-                "— что это за вещь\n"
-                "— состояние\n"
-                "— желаемая цена продажи\n\n"
-                "👉 Когда будете готовы — нажмите кнопку для оценки"
-            )
-
-            if prev_prompt_id:
-                try:
-                    async with user_lock:
-                        if _submit_progress_counts.get(telegram_id, 0) != count:
-                            return
-                    await bot.delete_message(message.chat.id, prev_prompt_id)
-                except Exception as e:
-                    log_msg(f"[photo_handler] Failed to delete previous progress message: {e}")
-
-            prompt = await bot.send_message(
-                message.chat.id,
-                progress_text,
-                reply_markup=markup
-            )
-            async with user_lock:
-                if _submit_progress_counts.get(telegram_id, 0) == count:
-                    _submit_prompt_messages[telegram_id] = prompt.message_id
-
-    async def _queue_album_photo(bot: AsyncTeleBot, message: Message, telegram_id: int, media_group_id: str, file_id: str) -> None:
-        user_lock = _get_user_lock(telegram_id)
         async with user_lock:
-            batch = _pending_albums.get(media_group_id)
-            if batch is None:
-                batch = {
-                    "telegram_id": telegram_id,
-                    "chat_id": message.chat.id,
-                    "file_ids": [],
-                    "timer": None,
-                }
-                _pending_albums[media_group_id] = batch
+            data = await _get_data(chat_id, telegram_id)
+            lang = data.get("lang", "ru")
+            if not data.get("pending_photos") and not data.get("pending_albums"):
+                data.pop("pending_description", None)
+                data.pop("preview", None)
+                data.pop("desired_price", None)
+            if message.caption:
+                data["pending_caption"] = message.caption
 
-            if len(batch["file_ids"]) >= Config.MAX_PHOTOS_PER_REQUEST:
-                log_msg(f"[photo_handler] Album photo limit reached for {telegram_id} group={media_group_id}")
+            current: list[str] = data.get("pending_photos", [])
+            if len(current) >= Config.MAX_PHOTOS_PER_REQUEST:
+                await bot.send_message(chat_id, t(lang, "photo_limit_reached", max=Config.MAX_PHOTOS_PER_REQUEST))
                 return
 
-            if file_id not in batch["file_ids"]:
-                batch["file_ids"].append(file_id)
-                log_msg(f"[photo_handler] Album buffered: group={media_group_id} total={len(batch['file_ids'])}")
-
-            timer = batch.get("timer")
-            if timer:
-                timer.cancel()
-
-            timer = asyncio.create_task(_flush_album_with_delay(bot, media_group_id, telegram_id))
-            batch["timer"] = timer
-
-    async def _flush_album_with_delay(bot: AsyncTeleBot, media_group_id: str, telegram_id: int) -> None:
-        await asyncio.sleep(1.2)
-        await _flush_album(bot, media_group_id, telegram_id)
-
-    async def _flush_album(bot: AsyncTeleBot, media_group_id: str, telegram_id: int) -> None:
-        user_lock = _get_user_lock(telegram_id)
-        async with user_lock:
-            batch = _pending_albums.pop(media_group_id, None)
-
-        if not batch:
-            return
-
-        telegram_id = batch["telegram_id"]
-        chat_id = batch["chat_id"]
-        file_ids = batch["file_ids"]
-        if not file_ids:
-            return
-
-        async with user_lock:
-            current = _pending_photos.get(telegram_id, [])
-            room_left = Config.MAX_PHOTOS_PER_REQUEST - len(current)
-            if room_left <= 0:
-                log_msg(f"[photo_handler] Album flush skipped, limit reached for {telegram_id}")
-                await bot.send_message(chat_id, f"⚠️ You can send up to {Config.MAX_PHOTOS_PER_REQUEST} photos per request.")
-                return
-
-            accepted = file_ids[:room_left]
-            current.extend(accepted)
-            _pending_photos[telegram_id] = current
+            current.append(file_id)
+            data["pending_photos"] = current
+            await _set_data(chat_id, telegram_id, data)
+            if data.get("desired_price"):
+                await _set_state(chat_id, telegram_id, "awaiting_description")
+            else:
+                await _set_state(chat_id, telegram_id, "awaiting_price")
             count = len(current)
-            _submit_progress_counts[telegram_id] = count
-            prev_prompt_id = _submit_prompt_messages.get(telegram_id)
-            log_msg(f"[photo_handler] Album flushed for {telegram_id}: +{len(accepted)} total={count}")
 
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("Отправить", callback_data="submit_request"))
-        progress_text = (
-            f"📸 Фото принято: {count}/{Config.MAX_PHOTOS_PER_REQUEST}\n\n"
-            "📝 Теперь отправьте информацию о товаре:\n"
-            "— что это за вещь\n"
-            "— состояние\n"
-            "— желаемая цена продажи\n\n"
-            "Нажмите кнопку ниже, чтобы отправить на оценку."
+        prompt_key = "photo_progress" if data.get("desired_price") else "photo_received_ask_price"
+
+        await bot.send_message(
+            chat_id,
+            t(lang, prompt_key, count=count, max=Config.MAX_PHOTOS_PER_REQUEST),
+            parse_mode="HTML",
         )
 
-        if prev_prompt_id:
-            try:
-                await bot.delete_message(chat_id, prev_prompt_id)
-            except Exception as e:
-                log_msg(f"[photo_handler] Failed to delete album progress message: {e}")
-
-        prompt = await bot.send_message(chat_id, progress_text, reply_markup=markup)
+    async def _queue_album_photo(message: Message, telegram_id: int, media_group_id: str, file_id: str) -> None:
+        chat_id = message.chat.id
+        user_lock = await _get_user_lock(telegram_id)
         async with user_lock:
-            if _submit_progress_counts.get(telegram_id, 0) == count:
-                _submit_prompt_messages[telegram_id] = prompt.message_id
+            data = await _get_data(chat_id, telegram_id)
+            if not data.get("pending_photos") and not data.get("pending_albums"):
+                data.pop("pending_description", None)
+                data.pop("preview", None)
+                data.pop("desired_price", None)
+            if message.caption:
+                data["pending_caption"] = message.caption
 
-    @bot.callback_query_handler(func=lambda call: call.data == "submit_request")
-    async def handle_submit_callback(call: CallbackQuery):
+            albums: dict[str, AlbumBatch] = data.get("pending_albums", {})
+            batch = albums.get(media_group_id, {"chat_id": chat_id, "file_ids": []})
+            if file_id not in batch["file_ids"] and len(batch["file_ids"]) < Config.MAX_PHOTOS_PER_REQUEST:
+                batch["file_ids"].append(file_id)
+                albums[media_group_id] = batch
+                data["pending_albums"] = albums
+                await _set_data(chat_id, telegram_id, data)
+
+        timer_key = (chat_id, telegram_id, media_group_id)
+        timer = _album_flush_timers.get(timer_key)
+        if timer:
+            timer.cancel()
+        _album_flush_timers[timer_key] = asyncio.create_task(_flush_album_with_delay(chat_id, telegram_id, media_group_id))
+
+    async def _flush_album_with_delay(chat_id: int, telegram_id: int, media_group_id: str) -> None:
+        await asyncio.sleep(1.2)
+        await _flush_album(chat_id, telegram_id, media_group_id)
+
+    async def _flush_album(chat_id: int, telegram_id: int, media_group_id: str) -> None:
+        _album_flush_timers.pop((chat_id, telegram_id, media_group_id), None)
+        user_lock = await _get_user_lock(telegram_id)
+
+        async with user_lock:
+            data = await _get_data(chat_id, telegram_id)
+            albums: dict[str, AlbumBatch] = data.get("pending_albums", {})
+            batch = albums.pop(media_group_id, None)
+            if not batch:
+                return
+
+            data["pending_albums"] = albums
+            lang = data.get("lang", "ru")
+            current: list[str] = data.get("pending_photos", [])
+            room_left = Config.MAX_PHOTOS_PER_REQUEST - len(current)
+            if room_left <= 0:
+                await _set_data(chat_id, telegram_id, data)
+                await bot.send_message(chat_id, t(lang, "photo_limit_reached", max=Config.MAX_PHOTOS_PER_REQUEST))
+                return
+
+            accepted = batch["file_ids"][:room_left]
+            current.extend(accepted)
+            data["pending_photos"] = current
+            await _set_data(chat_id, telegram_id, data)
+            current_state = await _get_state(chat_id, telegram_id)
+            if data.get("desired_price"):
+                if current_state != "awaiting_description":
+                    await _set_state(chat_id, telegram_id, "awaiting_description")
+            else:
+                if current_state != "awaiting_price":
+                    await _set_state(chat_id, telegram_id, "awaiting_price")
+            count = len(current)
+
+        prompt_key = "photo_progress" if data.get("desired_price") else "photo_received_ask_price"
+
+        await bot.send_message(
+            chat_id,
+            t(lang, prompt_key, count=count, max=Config.MAX_PHOTOS_PER_REQUEST),
+            parse_mode="HTML",
+        )
+
+    # Legacy fallback for old messages that still contain submit_request button.
+    @bot.callback_query_handler(func=lambda call: call.data == "confirm_send")
+    async def handle_confirm_send(call: CallbackQuery):
         telegram_id = call.from_user.id
-        log_msg(f"[photo_handler] Submit button clicked from {telegram_id}")
-        await bot.answer_callback_query(call.id, "Отправляем...")
+        chat_id = call.message.chat.id
 
-        prompt_id = _submit_prompt_messages.pop(telegram_id, None)
-        _submit_progress_counts.pop(telegram_id, None)
-        if prompt_id:
-            try:
-                await bot.edit_message_reply_markup(call.message.chat.id, prompt_id, reply_markup=None)
-            except Exception as e:
-                log_msg(f"[photo_handler] Failed to remove submit button: {e}")
+        if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
+            logger.debug(f"[photo_handler] Ignoring confirm_send from admin {telegram_id}")
+            await bot.answer_callback_query(call.id, "")
+            return
 
-        await _finalize_submission(bot, call.message, telegram_id, description="")
+        data = await _get_data(chat_id, telegram_id)
+        lang = data.get("lang", "ru")
+        pending = data.get("pending_photos", [])
+        if not pending:
+            await bot.answer_callback_query(call.id, t(lang, "send_photo_first"))
+            return
+
+        description = data.get("pending_description", "")
+        # move to submitting state and finalize
+        await _set_state(chat_id, telegram_id, "submitting")
+        await bot.answer_callback_query(call.id, t(lang, "submit_button"))
+        await finalize_submission(bot, call.message, telegram_id, description) #type:ignore
+        await _set_state(chat_id, telegram_id, "awaiting_photo")
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("show_contact:"))
     async def handle_show_contact_callback(call: CallbackQuery):
         phone = call.data.split("show_contact:", 1)[1].strip()
-        log_msg(f"[photo_handler] Show contact clicked from {call.from_user.id}")
         await bot.answer_callback_query(call.id, f"Телефон: {phone}", show_alert=True)
-
-    async def _finalize_submission(bot: AsyncTeleBot, message: Message, telegram_id: int, description: str):
-        log_msg(f"[photo_handler] Finalizing submission for {telegram_id}, description_len={len(description)}")
-        file_ids = _pending_photos.pop(telegram_id, [])
-        caption = _pending_captions.pop(telegram_id, "")
-        if caption and description:
-            full_description = caption + "\n" + description
-        else:
-            full_description = caption or description
-        
-
-        
-        _submit_progress_counts.pop(telegram_id, None)
-        if not file_ids:
-            log_msg(f"[photo_handler] No photo found in pending for {telegram_id}")
-            await bot.send_message(message.chat.id, "⚠️ Сначала отправьте фото.")
-            return
-
-        log_msg(f"[photo_handler] Found {len(file_ids)} pending photo(s), calling RequestService.submit_product_request()")
-        await bot.send_message(message.chat.id, f"⏳ Отправляем {len(file_ids)} фото на оценку...")
-
-        # FIX: reuse singleton repo, create svc with it
-        svc = RequestService(bot, _repo)
-        await svc.submit_product_request(
-            chat_id=message.chat.id,
-            telegram_id=telegram_id,
-            file_ids=file_ids,
-            description=full_description,
-        )
-
-    # Expose _finalize_submission so text_handler can call it
-    register_photo_handler._finalize = _finalize_submission
-    register_photo_handler._pending = _pending_photos
-    register_photo_handler._submit_prompts = _submit_prompt_messages
-    register_photo_handler._pending_captions = _pending_captions

@@ -16,8 +16,13 @@ class Config:
     CALLBACK_PORT: int = int(os.getenv("CALLBACK_PORT", "5055"))
     CALLBACK_SECRET: str = os.getenv("CALLBACK_SECRET", "") # PHP signs callbacks with this
 
+    # Redis (for storing lightweight user state like language)
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "127.0.0.1")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+
     # MySQL
-    DB_HOST: str = os.getenv("DB_HOST", "127.0.0.1")
+    DB_HOST: str = os.getenv("DB_HOST", "localhost")
     DB_PORT: int = int(os.getenv("DB_PORT", "3306"))
     DB_NAME: str = os.getenv("DB_NAME", "your_cms_db")
     DB_USER: str = os.getenv("DB_USER", "")

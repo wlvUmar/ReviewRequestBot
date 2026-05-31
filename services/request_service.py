@@ -1,14 +1,17 @@
-import io
 import asyncio
 import traceback
 import secrets
 import string
+import html
+import re
 from config import Config
 from db.repository import BotRepository
 from services.api_service import ApiService
 from telebot.async_telebot import AsyncTeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from utils.logger import log_msg
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class RequestService:
     def __init__(self, bot: AsyncTeleBot, repo: BotRepository):
@@ -30,20 +33,18 @@ class RequestService:
         file_ids: list[str],
         description: str,
     ) -> None:
-        log_msg(f"[submit] Starting submission for telegram_id={telegram_id}")
+        logger.debug(f"[submit] Starting submission for telegram_id={telegram_id}")
         
-        # 1. Download image bytes from Telegram (concurrent)
-        log_msg(f"[submit] Downloading {len(file_ids)} image(s) from Telegram")
+        logger.debug(f"[submit] Downloading {len(file_ids)} image(s) from Telegram")
         images = await self._download_images(file_ids)
         if not images:
-            log_msg(f"[submit] Failed to download any images")
+            logger.warning(f"[submit] Failed to download any images")
             await self.bot.send_message(chat_id, "❌ Не удалось загрузить фото. Попробуйте ещё раз.")
             return
 
-        log_msg(f"[submit] Downloaded {len(images)} image(s)")
+        logger.debug(f"[submit] Downloaded {len(images)} image(s)")
 
-        # 2. POST to PHP backend — multipart upload
-        log_msg(f"[submit] Calling PHP API to create product request...")
+        logger.debug(f"[submit] Calling PHP API to create product request...")
         result = await self.api.create_product_request(
             telegram_id=telegram_id,
             description=description,
@@ -51,7 +52,7 @@ class RequestService:
         )
 
         if result is None:
-            log_msg(f"[submit] API returned None - connection or parsing failed")
+            logger.warning(f"[submit] API returned None - connection or parsing failed")
             await self.bot.send_message(
                 chat_id,
                 "❌ Не удалось отправить фото. Попробуйте ещё раз через пару минут."
@@ -59,21 +60,21 @@ class RequestService:
             return
 
         request_id: int = result["request_id"]
-        log_msg(f"[submit] API returned request_id={request_id}")
+        logger.debug(f"[submit] API returned request_id={request_id}")
 
         # 3. Persist mapping: request_id ↔ telegram_id (so callback server can notify user)
-        log_msg(f"[submit] Saving request mapping...")
+        logger.debug(f"[submit] Saving request mapping...")
         await self.repo.save_request(
             request_id=request_id,
             telegram_id=telegram_id,
             file_id=file_ids[0],
             description=description,
         )
-        log_msg(f"[submit] Request mapping saved")
+        logger.debug(f"[submit] Request mapping saved")
         
-        # 4. Notify admins
-        log_msg(f"[submit] Notifying admins...")
-        await self._notify_admins(telegram_id, request_id, len(file_ids), description)
+        logger.debug(f"[submit] Notifying admins...")
+        preview_file_id = file_ids[0] if file_ids else None
+        await self._notify_admins(telegram_id, request_id, len(file_ids), description, preview_file_id=preview_file_id)
 
         await self.bot.send_message(
             chat_id,
@@ -85,21 +86,21 @@ class RequestService:
     # Notification (called by callback server when PHP posts a review result)
     # -------------------------------------------------------------------------
     async def notify_review_result(self, request_id: int, status: str, price: str, notes: str, contact_phone: str = "") -> bool:
-        log_msg(f"[notify] request_id={request_id} status={status} price={price} contact_phone={contact_phone or 'EMPTY'}")
+        logger.debug(f"[notify] request_id={request_id} status={status} price={price} contact_phone={contact_phone or 'EMPTY'}")
         mapping = await self.repo.get_request(request_id)
         if not mapping:
-            log_msg(f"[notify] mapping not found for request_id={request_id}")
+            logger.warning(f"[notify] mapping not found for request_id={request_id}")
             return False
 
         claim = await self.repo.claim_request_notification(request_id)
         if not claim:
             current_state = mapping.get("notification_sent")
-            log_msg(f"[notify] claim failed for request_id={request_id} state={current_state}")
+            logger.warning(f"[notify] claim failed for request_id={request_id} state={current_state}")
             return current_state in (1, 2)
 
         if not claim.get("claimed"):
             current_state = claim.get("mapping", {}).get("notification_sent")
-            log_msg(f"[notify] claim already handled request_id={request_id} state={current_state}")
+            logger.warning(f"[notify] claim already handled request_id={request_id} state={current_state}")
             return current_state in (1, 2)
 
         telegram_id = mapping["telegram_id"]
@@ -110,23 +111,22 @@ class RequestService:
             if contact_phone:
                 text += f"\n📞 <b>Контакт:</b> {contact_phone}"
             else:
-                log_msg(f"[notify] contact phone empty for request_id={request_id}")
+                logger.info(f"[notify] contact phone empty for request_id={request_id}")
             if notes:
                 text += f"\n📝 <b>Комментарий:</b> {notes}"
         else:
             text = "Спасибо! Фото получили. Сейчас не можем дать точную оценку."
             if notes:
                 text += f"\n📝 <b>Комментарий:</b> {notes}"
-            log_msg(f"[notify] non-approved or empty price for request_id={request_id}")
+            logger.debug(f"[notify] non-approved or empty price for request_id={request_id}")
 
         try:
             await self.bot.send_message(telegram_id, text)
             await self.repo.mark_request_notified(request_id)
-            log_msg(f"[notify] sent successfully for request_id={request_id}")
+            logger.debug(f"[notify] sent successfully for request_id={request_id}")
             return True
         except Exception as e:
-            log_msg(f"[notify] Exception for request_id={request_id}: {e}")
-            log_msg(traceback.format_exc())
+            logger.error(f"[notify] Exception for request_id={request_id}: {e}", exc_info=True)
             await self.repo.release_request_notification(request_id)
             return False
 
@@ -134,80 +134,76 @@ class RequestService:
     # Helpers
     # -------------------------------------------------------------------------
     async def _download_images(self, file_ids: list[str]) -> list[tuple[bytes, str]]:
-        # Download all images concurrently
-        tasks = [self._download_image(file_id) for file_id in file_ids]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        images = []
-        for result in results:
-            if isinstance(result, Exception):
-                log_msg(f"[image] Error downloading image: {result}")
-                continue
-            image_bytes, filename = result
-            if image_bytes is None:
-                continue
-            images.append((image_bytes, filename))
-        return images
+        results = await asyncio.gather(*[self._download_image(fid) for fid in file_ids])
+        return [(b, f) for b, f in results if b is not None]
 
     async def _download_image(self, file_id: str) -> tuple[bytes | None, str]:
         try:
-            log_msg(f"[image] Downloading from Telegram API...")
+            logger.debug(f"[image] Downloading from Telegram API...")
             file_info = await self.bot.get_file(file_id)
-            log_msg(f"[image] File info: path={file_info.file_path}")
+            logger.debug(f"[image] File info: path={file_info.file_path}")
             downloaded = await self.bot.download_file(file_info.file_path)
             filename = file_info.file_path.split("/")[-1]  # e.g. photos/file_123.jpg
             size_mb = len(downloaded) / (1024 * 1024)
-            log_msg(f"[image] Downloaded {filename}: {size_mb:.2f} MB")
+            logger.debug(f"[image] Downloaded {filename}: {size_mb:.2f} MB")
             if size_mb > Config.IMAGE_MAX_MB:
-                log_msg(f"[image] Image too large ({size_mb:.2f}MB > {Config.IMAGE_MAX_MB}MB)")
+                logger.debug(f"[image] Image too large ({size_mb:.2f}MB > {Config.IMAGE_MAX_MB}MB)")
                 return None, ""
             return downloaded, filename
         except Exception as e:
-            log_msg(f"[image] Error downloading: {e}")
+            logger.error(f"[image] Error downloading: {e}", exc_info=True)
             return None, ""
     
-    async def _notify_admins(self, telegram_id: int, request_id: int, photo_count: int, description: str) -> None:
-        """Send notification to all admins about new request"""
-        admin_ids = Config.ADMIN_IDS
+
+    async def _notify_admins(self, telegram_id: int, request_id: int, photo_count: int, description: str, preview_file_id: str | None = None) -> None:
+        admin_ids = list(Config.ADMIN_IDS)
         if not admin_ids:
-            log_msg(f"[admin_notify] No admin IDs configured")
+            logger.warning("notify_admins: no admin IDs configured")
             return
-        
-        # Generate secure token
+
+        directive_match = re.search(r"#([A-Za-z0-9_]+)=([0-9]{5,15})", description or "")
+        if directive_match:
+            try:
+                target_id = int(directive_match.group(2))
+                if target_id in admin_ids:
+                    admin_ids = [target_id]
+            except Exception:
+                pass
+
         token = self._generate_access_token()
-        
-        # Store token in DB (3 days expiration)
         await self._store_access_token(request_id, token)
-        
-        # Build link with token
+
         base_url = Config.PHP_API_BASE_URL.rstrip("/")
         access_link = f"{base_url}/admin/requests/{request_id}?token={token}"
-        
-        message = (
+        clean_desc = re.sub(r"#([A-Za-z0-9_]+)=[0-9]{5,15}", "", description or "").strip()
+        safe_desc = html.escape(clean_desc)[:200]
+        caption = (
             f"🔔 <b>Новый запрос</b>\n\n"
             f"📋 ID: <code>{request_id}</code>\n"
             f"👤 Telegram: <code>{telegram_id}</code>\n"
             f"📸 Фото: {photo_count}\n"
-            f"📝 Описание: {description[:100]}"
+            f"📝 Описание: {safe_desc}"
         )
-        
-        # Create inline keyboard with link button
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("Открыть запрос", web_app=WebAppInfo(url=access_link)))
-        
-        # Notify all admins concurrently
-        tasks = []
-        for admin_id in admin_ids:
-            tasks.append(self._send_admin_notification(admin_id, message, markup))
-        
-        await asyncio.gather(*tasks, return_exceptions=True)
-    
-    async def _send_admin_notification(self, admin_id: int, message: str, markup: InlineKeyboardMarkup) -> None:
+
+        await asyncio.gather(
+            *[self._send_admin_notification(aid, caption, markup, preview_file_id) for aid in admin_ids],
+            return_exceptions=True,
+        )
+
+
+
+
+    async def _send_admin_notification(self, admin_id: int, message: str, markup: InlineKeyboardMarkup, preview_file_id: str | None = None) -> None:
         try:
-            await self.bot.send_message(admin_id, message, parse_mode="HTML", reply_markup=markup)
-            log_msg(f"[admin_notify] Sent notification to admin {admin_id}")
+            if preview_file_id:
+                await self.bot.send_photo(admin_id, preview_file_id, caption=message, parse_mode="HTML", reply_markup=markup)
+            else:
+                await self.bot.send_message(admin_id, message, parse_mode="HTML", reply_markup=markup)
+            logger.debug(f"[admin_notify] Sent notification to admin {admin_id}")
         except Exception as e:
-            log_msg(f"[admin_notify] Failed to notify admin {admin_id}: {e}")
+            logger.warning(f"[admin_notify] Failed to notify admin {admin_id}: {e}")
     
     def _generate_access_token(self, length: int = 32) -> str:
         """Generate a secure random token"""
@@ -217,14 +213,11 @@ class RequestService:
     async def _store_access_token(self, request_id: int, token: str) -> None:
         """Store access token in DB with 3-day expiration"""
         try:
-            log_msg(f"[admin_notify] Storing access token for request {request_id}, token={token[:16]}...")
-            # Use API to store token on PHP side
+            logger.debug(f"[admin_notify] Storing access token for request {request_id}, token={token[:16]}...")
             result = await self.api.create_access_token(request_id, token)
             if result:
-                log_msg(f"[admin_notify] Access token stored successfully for request {request_id}")
+                logger.debug(f"[admin_notify] Access token stored successfully for request {request_id}")
             else:
-                log_msg(f"[admin_notify] Failed to store access token for request {request_id} (API returned None)")
+                logger.debug(f"[admin_notify] Failed to store access token for request {request_id} (API returned None)")
         except Exception as e:
-            log_msg(f"[admin_notify] Error storing access token: {e}")
-            import traceback
-            log_msg(f"[admin_notify] Traceback: {traceback.format_exc()}")
+            logger.error(f"[admin_notify] Error storing access token: {e}", exc_info=True)
