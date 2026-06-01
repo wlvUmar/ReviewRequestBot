@@ -22,7 +22,7 @@ async def main():
     class LoggingExceptionHandler(ExceptionHandler):
         def handle(self, exception: Exception):
             logger.error("[bot] Handler exception:\n%s", traceback.format_exc())
-            return True
+            return False
 
     bot = AsyncTeleBot(
         Config.BOT_TOKEN,
@@ -30,7 +30,7 @@ async def main():
         state_storage=storage,
         exception_handler=LoggingExceptionHandler(),  # type: ignore[arg-type]
     )  # type: ignore
-
+ 
     # Compatibility wrappers: ensure state/get/set methods are awaitable regardless of pyTelegramBotAPI version
     def _wrap_async(func):
         if asyncio.iscoroutinefunction(func):
@@ -96,7 +96,7 @@ async def main():
     logger.info("[bot] Bot is running...")
     logger.info("[bot] Starting polling (listening for messages)...")
     try:
-        await bot.polling(timeout=30)
+        await bot.infinity_polling(timeout=30)
     except Exception:
         logger.exception("[bot] ERROR in polling loop")
     finally:

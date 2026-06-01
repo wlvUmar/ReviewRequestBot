@@ -41,7 +41,6 @@ def register_start_handler(bot: AsyncTeleBot):
 
         # Block admin accounts from starting interactive flows
         if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
-            logger.debug(f"[start_handler] Ignoring /start from admin {telegram_id}")
             return
 
         username = message.from_user.username or ""
@@ -84,8 +83,7 @@ def register_start_handler(bot: AsyncTeleBot):
         telegram_id = message.from_user.id
 
         if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
-            logger.debug(f"[start_handler] Ignoring contact from admin {telegram_id}")
-            return
+                return
 
         contact = message.contact
         data = await _get_data(message.chat.id, telegram_id)
@@ -124,7 +122,6 @@ def register_start_handler(bot: AsyncTeleBot):
         telegram_id = call.from_user.id
 
         if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
-            logger.debug(f"[start_handler] Ignoring lang callback from admin {telegram_id}")
             await bot.answer_callback_query(call.id, "")
             return
 
