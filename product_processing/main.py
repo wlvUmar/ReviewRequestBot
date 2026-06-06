@@ -19,7 +19,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from config import Config
-from product_processing.llm import get_search_queries, extract_item, get_repair_search_queries
+from product_processing.llm import (
+    get_search_queries,
+    extract_item,
+    get_repair_search_queries,
+    extract_repair_cost,   # new focused repair extraction
+)
 from product_processing.search import multi_search
 
 _session: aiohttp.ClientSession | None = None
@@ -36,7 +41,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Item Pricer",
     description="Extracts structured item data and calculates profit from UZS prices",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 
@@ -65,9 +70,9 @@ class AnalyzeResponse(BaseModel):
     # Pricing — all UZS
     desired_price_uzs: int
     market_price_uzs: int | None
-    fast_sell_price_uzs: int | None      # market * FAST_SELL_RATIO
+    fast_sell_price_uzs: int | None
     repair_cost_uzs: int | None
-    profit_uzs: int | None               # fast_sell - desired - repair
+    profit_uzs: int | None
     price_confidence: str | None
     price_notes: str | None
 
@@ -100,7 +105,8 @@ async def analyze(req: AnalyzeRequest):
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    # Stage 4: if repair needed, enrich with repair cost search
+    # Stage 4: if repair needed, fetch repair cost with a focused cheap extraction
+    # instead of re-running the full expensive prompt with all fields
     if item.get("needs_repair") and item.get("repair_type"):
         try:
             repair_queries = await get_repair_search_queries(
@@ -110,15 +116,29 @@ async def analyze(req: AnalyzeRequest):
             )
             repair_results = await multi_search(repair_queries, session)
             if repair_results:
-                item = await extract_item(req.text, search_results + repair_results, session)
+                repair_data = await extract_repair_cost(
+                    repair_type=item["repair_type"],
+                    product_name=item.get("product_name") or req.text,
+                    repair_search_results=repair_results,
+                    session=session,
+                )
+                # Patch only the repair cost into the item — everything else stays from stage 3
+                if repair_data.get("repair_cost_uzs") is not None:
+                    item["repair_cost_uzs"] = repair_data["repair_cost_uzs"]
+                if repair_data.get("repair_notes"):
+                    # Append repair notes to price_notes so admin sees both
+                    existing = item.get("price_notes") or ""
+                    item["price_notes"] = (
+                        f"{existing} | Ремонт: {repair_data['repair_notes']}".strip(" |")
+                    )
         except Exception as e:
             import logging
             logging.getLogger("reviewrequestbot").warning(
-                f"[pricer] repair search failed, using first extraction: {e}"
+                f"[pricer] repair cost extraction failed, using first-pass estimate: {e}"
             )
 
     # ---------------------------------------------------------------------------
-    # Profit calculation — pure Python math, no LLM involvement
+    # Profit calculation — pure Python, no LLM involvement
     # ---------------------------------------------------------------------------
     market_uzs: int | None = item.get("market_price_uzs")
     repair_uzs: int | None = item.get("repair_cost_uzs")
@@ -138,7 +158,7 @@ async def analyze(req: AnalyzeRequest):
         brand=item.get("brand"),
         model=item.get("model"),
         condition=item.get("condition"),
-        is_in_category=bool(item.get("is_in_category", True)),  # default True = let through
+        is_in_category=bool(item.get("is_in_category", True)),
         desired_price_uzs=req.desired_price_uzs,
         market_price_uzs=market_uzs,
         fast_sell_price_uzs=fast_sell_uzs,
@@ -153,4 +173,4 @@ async def analyze(req: AnalyzeRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"} 
+    return {"status": "ok"}
