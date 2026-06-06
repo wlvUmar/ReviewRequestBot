@@ -50,7 +50,7 @@ class ApiService:
         description: str,
         images: list[tuple[bytes, str]],
     ) -> dict | None:
-        """
+        """ 
         POST /api/bot/requests
         Multipart: image file + JSON metadata.
         Expected PHP response (200):
@@ -67,7 +67,7 @@ class ApiService:
             ("telegram_id", str(telegram_id)),
             ("description", description),
         ])
-
+        logger.debug("DESCRIPTION_REPR=%r", description)
         form = aiohttp.FormData()
         form.add_field("telegram_id", str(telegram_id))
         form.add_field("description", description)
@@ -75,8 +75,10 @@ class ApiService:
         for index, (image_bytes, filename) in enumerate(images):
             logger.debug(f"[api] photo#{index + 1} filename={filename}, image_size={len(image_bytes)} bytes")
             form.add_field("images[]", image_bytes, filename=filename, content_type="image/jpeg")
-
+        logger.debug("SIGNED_BODY_REPR=%r", body_for_sig)
+        logger.debug("SIGNED_BODY_LEN=%d", len(body_for_sig))
         headers = self._auth_headers(body_for_sig)
+        logger.debug("HEADERS=%s", headers)
 
         try:
             session = await self._get_session()
@@ -431,6 +433,8 @@ class ApiService:
             message.encode(),
             hashlib.sha256,
         ).hexdigest()
+        logger.debug("MESSAGE_REPR=%r", message)
+        logger.debug("SIGNATURE=%s", signature)
         return {
             "X-Bot-Timestamp": timestamp,
             "X-Bot-Signature": signature,

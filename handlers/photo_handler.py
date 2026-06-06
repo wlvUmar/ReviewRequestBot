@@ -62,7 +62,7 @@ async def finalize_submission(bot: AsyncTeleBot, message: Message, telegram_id: 
         full_description = caption or description
 
     if desired_price:
-        full_description = f"{full_description}\n💰 {t(lang, 'desired_price_label')}: {desired_price}".strip()
+        full_description = f"{full_description}\n{t(lang, 'desired_price_label')}: {desired_price}".strip()
 
     if not file_ids:
         await bot.send_message(chat_id, t(lang, "send_photo_first"))

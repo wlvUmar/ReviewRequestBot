@@ -41,4 +41,21 @@ class Config:
     ADMIN_IDS: list[int] = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
     
     # Logging (DEBUG=1 for verbose, DEBUG=0 for errors only)
+    # --- LLM (main extraction model) ---
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "your_key_here")
+    MAIN_MODEL = os.getenv("MAIN_MODEL", "openai/gpt-4o-mini")
+
+    # --- LLM (cheap model just for generating search queries) ---
+    QUERY_MODEL = os.getenv("QUERY_MODEL", "openai/gpt-4o-mini")
+
+    # --- SearXNG ---
+    SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8080")
+
+    # Fast-sell ratio: what fraction of market price you can realistically get quickly
+    FAST_SELL_RATIO = float(os.getenv("FAST_SELL_RATIO", "0.82"))
+
+    MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "10"))
+    REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
+    PRICER_URL: str = os.getenv("PRICER_URL", "http://localhost:8001")
     DEBUG: bool = os.getenv("DEBUG", "1") == "1"
+     
