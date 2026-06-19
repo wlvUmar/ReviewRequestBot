@@ -1,19 +1,21 @@
 """
 services/request_service.py
-"""
+""" 
 
 import asyncio
 import secrets
 import string
 import html
 import re
+import base64
 from config import Config
 from db.repository import BotRepository
 from services.api_service import ApiService
 from telebot.async_telebot import AsyncTeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from utils.i18n import t
 from utils.logger import get_logger
-from utils.currency import format_uzs, uzs_to_usd
+from utils.currency import format_uzs
 
 logger = get_logger(__name__)
 
@@ -38,28 +40,28 @@ class RequestService:
         telegram_id: int,
         file_ids: list[str],
         description: str,
-        desired_price_uzs: int = 0,
-        desired_price_display: str = "",
+        desired_price: str = "0",
+        lang =  "ru"
     ) -> None:
-        logger.info(f"[submit] Юборилмоқда telegram_id={telegram_id}")
-
+        logger.info(f"[submit] submitting telegram_id={telegram_id}")
         images = await self._download_images(file_ids)
         if not images:
             logger.warning("[submit] Расмларни юклаб олиб бўлмади")
-            await self.bot.send_message(chat_id, "Расмни юклаб олиб бўлмади. Яна уриниб кўринг.")
+            await self.bot.send_message(chat_id, t(lang, "image_download_failed"))
             return
 
-        analysis = await self._analyze_product(description, desired_price_uzs)
-
-        if analysis is not None:
-            rejected, rejection_msg = self._check_rejection(analysis)
-            if rejected:
-                logger.info(f"[submit] Автоматик рад этилди telegram_id={telegram_id}: {rejection_msg}")
-                await self.bot.send_message(chat_id, rejection_msg)
-                return
+        # Pass images to pricer for vision + analysis
+        analysis = await self._analyze_product(description, desired_price, images)
+        
+        # if analysis is not None:
+            # rejected, rejection_msg = self._check_rejection(analysis, lang)
+            # if rejected:
+            #     logger.info(f"[submit] Автоматик рад этилди telegram_id={telegram_id}: {rejection_msg}")
+            #     await self.bot.send_message(chat_id, rejection_msg)
+            #     return
 
         enriched_description = self._build_enriched_description(
-            description, desired_price_uzs, desired_price_display, analysis,
+            description, desired_price, analysis,
         )
 
         result = await self.api.create_product_request(
@@ -69,11 +71,8 @@ class RequestService:
         )
 
         if result is None:
-            logger.warning("[submit] API None қайтарди")
-            await self.bot.send_message(
-                chat_id,
-                "Расмни юбориб бўлмади. Бир-икки дақиқадан сўнг яна уриниб кўринг.",
-            )
+            logger.warning("[submit] API returned None")
+            await self.bot.send_message(chat_id, t(lang, "api_upload_failed"))
             return
 
         request_id: int = result["request_id"]
@@ -88,28 +87,21 @@ class RequestService:
 
         preview_file_id = file_ids[0] if file_ids else None
         await self._notify_admins(
-            telegram_id, request_id, len(file_ids), enriched_description, preview_file_id
+            request_id, len(file_ids), enriched_description, preview_file_id
         )
 
-        await self.bot.send_message(chat_id, "Расмлар юборилди. Тез орада баҳо юборамиз.")
+        await self.bot.send_message(chat_id, t(lang, "request_submitted"))
 
     # -------------------------------------------------------------------------
     # Rejection logic
     # -------------------------------------------------------------------------
-    def _check_rejection(self, analysis: dict) -> tuple[bool, str]:
+    def _check_rejection(self, analysis: dict, lang="ru") -> tuple[bool, str]:
         if not analysis.get("is_in_category", True):
-            return (
-                True,
-                "Мурожаат учун раҳмат. Афсуски, биз бу турдаги маҳсулотни сотиб олмаймиз. "
-                "Биз маиший техника ва мебел қабул қиламиз.",
-            )
+            return False, t(lang, "reject_not_in_category")
 
-        profit = analysis.get("profit_uzs")
+        profit = analysis.get("profit_uzs", 0)
         if profit is not None and profit < PROFIT_THRESHOLD_UZS:
-            return (
-                True,
-                "Мурожаат учун раҳмат. Афсуски, бу маҳсулот учун мос нарх таклиф эта олмаймиз.",
-            )
+            return False, t(lang, "reject_low_profit")
 
         return False, ""
 
@@ -119,18 +111,17 @@ class RequestService:
     def _build_enriched_description(
         self,
         description: str,
-        desired_price_uzs: int,
-        desired_price_display: str,
+        desired_price: str,
         analysis: dict | None,
     ) -> str:
         lines = [description.strip()]
 
-        if desired_price_display:
-            lines.append(f"\nСотувчи нархи: {desired_price_display}")
-
         if analysis is None:
-            return "\n".join(lines)
-
+            return "\n".join(lines) + "\n" + f"нархи: {desired_price}"
+        
+        if analysis.get("desired_price_uzs"):
+            lines.append(f"\nнархи: {analysis.get('desired_price_uzs', desired_price)} UZS")
+        
         block = ["\n--- ИИ Таҳлили ---"]
 
         if analysis.get("product_name"):
@@ -171,9 +162,6 @@ class RequestService:
         fast_sell = analysis.get("fast_sell_price_uzs")
         if fast_sell:
             block.append(f"Тез сотиш нархи: {format_uzs(fast_sell)}")
-
-        if desired_price_uzs:
-            block.append(f"Сотувчи сўраган нарх: {format_uzs(desired_price_uzs)}")
 
         profit = analysis.get("profit_uzs")
         if profit is not None:
@@ -224,6 +212,12 @@ class RequestService:
             return current_state in (1, 2)
 
         telegram_id = mapping["telegram_id"]
+        try:
+            async with self.bot.retrieve_data(chat_id=telegram_id, user_id=telegram_id, bot_id=self.bot.bot_id) as data:
+                lang = data.get("lang", "ru")
+        except Exception:
+            logger.warning("[reqeust_service] Failed to retrieve data", exc_info=True)
+        
 
         if status == "approved" and price:
             text = f"Баҳо: {price}"
@@ -232,7 +226,7 @@ class RequestService:
             if notes:
                 text += f"\nИзоҳ: {notes}"
         else:
-            text = "Раҳмат! Расмларни олдик. Ҳозир аниқ баҳо бера олмаймиз."
+            text = t(lang, "reject")
             if notes:
                 text += f"\nИзоҳ: {notes}"
 
@@ -247,15 +241,33 @@ class RequestService:
             return False
 
     # -------------------------------------------------------------------------
-    # Pricer call
+    # Pricer call — now with images
     # -------------------------------------------------------------------------
-    async def _analyze_product(self, description: str, desired_price_uzs: int) -> dict | None:
+    async def _analyze_product(
+        self,
+        description: str,
+        desired_price: str,
+        images: list[tuple[bytes, str]],
+    ) -> dict | None:
         import aiohttp
         url = f"{Config.PRICER_URL}/analyze"
-        payload = {"text": description, "desired_price_uzs": desired_price_uzs}
+        
+        # Encode images to base64
+        b64_images = [base64.b64encode(img_bytes).decode() for img_bytes, _ in images]
+        
+        payload = {
+            "text": description,
+            "desired_price": desired_price,
+            "images": b64_images,
+        }
+
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                async with session.post(
+                    url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
                     if resp.status != 200:
                         logger.warning(f"[pricer] HTTP {resp.status}")
                         return None
@@ -290,7 +302,6 @@ class RequestService:
     # -------------------------------------------------------------------------
     async def _notify_admins(
         self,
-        telegram_id: int,
         request_id: int,
         photo_count: int,
         description: str,
@@ -317,14 +328,12 @@ class RequestService:
         access_link = f"{base_url}/admin/requests/{request_id}?token={token}"
 
         clean_desc = re.sub(r"#([A-Za-z0-9_]+)=[0-9]{5,15}", "", description or "").strip()
-        safe_desc = html.escape(clean_desc)[:300]
 
         caption = (
             f"<b>Янги сўров</b>\n\n"
             f"ID: <code>{request_id}</code>\n"
-            f"Телеграм: <code>{telegram_id}</code>\n"
             f"Расмлар: {photo_count}\n\n"
-            f"{safe_desc}"
+            f"{clean_desc}"
         )
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("Сўровни очиш", web_app=WebAppInfo(url=access_link)))

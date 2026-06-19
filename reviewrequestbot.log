@@ -1,5 +1,0 @@
-2026-05-25 21:40:48.379194 [INFO] Bot started
-2026-05-25 21:40:48.380205 [DEBUG] Processing photo file_123
-2026-05-25 21:40:48.380205 [INFO] API response: 201 Created
-2026-05-25 21:40:48.381254 [WARNING] Retrying due to timeout
-2026-05-25 21:40:48.381254 [ERROR] Connection failed

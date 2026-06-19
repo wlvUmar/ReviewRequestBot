@@ -215,7 +215,7 @@ class ApiService:
                 payload = await response.json(content_type=None)
                 return payload if payload.get("success") else None
         except Exception as e:
-            logger.warning(f"[api] Failed to upsert user: {e}")
+            logger.error(f"[api] Failed to upsert user: {e}", exc_info=True)
             return None
 
     @async_with_retry()
@@ -433,8 +433,6 @@ class ApiService:
             message.encode(),
             hashlib.sha256,
         ).hexdigest()
-        logger.debug("MESSAGE_REPR=%r", message)
-        logger.debug("SIGNATURE=%s", signature)
         return {
             "X-Bot-Timestamp": timestamp,
             "X-Bot-Signature": signature,

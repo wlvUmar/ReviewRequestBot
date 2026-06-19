@@ -9,9 +9,11 @@ class BotRepository:
     def __init__(self):
         self.api = ApiService()
 
-    async def upsert_user(self, telegram_id: int, username: str, first_name: str) -> None:
-        await self.api.upsert_user(telegram_id, username, first_name, "")
-
+    async def upsert_user(self, telegram_id: int, username: str, first_name: str) -> bool:
+        result = await self.api.upsert_user(telegram_id, username, first_name, "")
+        if not result: 
+            return False
+        return True
     async def get_user(self, telegram_id: int) -> dict | None:
         return await self.api.get_user(telegram_id)
 

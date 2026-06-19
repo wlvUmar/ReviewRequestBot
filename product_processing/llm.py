@@ -8,17 +8,17 @@ Two-stage LLM pipeline:
 Currency note: ALL prices the LLM returns are in UZS.
 Profit math is done in Python (request_service.py), never by the LLM.
 """
-
 import json
 import aiohttp
 from config import Config
-from utils.logger import get_logger
+from product_processing.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Single source of truth — passed into prompts dynamically so there's no drift
-_USD_RATE = Config.FAST_SELL_RATIO  # reuse from config? No — use currency.py's rate
-# Import the rate directly from currency.py so it's never duplicated
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from product_processing.vision import VisionContext
+
 from utils.currency import USD_RATE as _USD_RATE
 
 
@@ -69,36 +69,47 @@ async def _call(
 
 
 # ---------------------------------------------------------------------------
-# Step 1 — cheap model: generate search queries
+# Step 1 — generate search queries
 # ---------------------------------------------------------------------------
 
-_QUERY_SYSTEM = """Ты генерируешь поисковые запросы на русском языке для поиска \
-актуальных цен на б/у товары в Ташкенте, Узбекистан.
+_QUERY_SYSTEM = """Ты генерируешь поисковые запросы для поиска актуальных цен на б/у товары в Ташкенте.
 
-Верни ТОЛЬКО JSON-массив из 2-3 строк. Каждый запрос должен:
-- быть на русском языке (именно так ищут в Ташкенте)
-- содержать название товара, бренд/модель если известны
-- содержать слово "Ташкент" или "Узбекистан" или "olx.uz"
-- быть конкретным — чтобы найти реальные объявления с ценами
+Правила:
+- Верни ТОЛЬКО JSON-массив из 2-3 строк.
+- Каждый запрос должен быть конкретным — использовать точное название товара как его ищут на OLX.uz.
+- ВСЕГДА включай "olx.uz" в один из запросов — это главная площадка для мебели и техники в Ташкенте.
+- Для мебели: используй точное русское название (горка, диван-кровать, шкаф-купе, кухонный гарнитур и т.д.).
+  НЕ используй широкие категории типа "мебель" или "шкаф" если известно точное название.
+- Для техники: включай бренд и модель если известны.
+- Запросы на русском языке.
 
-Пример для "Samsung холодильник двухкамерный 350L немного царапин":
-["Samsung холодильник б/у цена Ташкент", "холодильник Samsung 350L купить Узбекистан olx", "Samsung холодильник двухкамерный бу Ташкент цена"]
+Примеры:
+  Товар "горка":
+  ["горка мебель б/у цена Ташкент olx.uz", "горка витрина купить Ташкент", "горка мебель Ташкент цена сум"]
 
-Никакого markdown, никаких пояснений — только JSON-массив."""
+  Товар "Samsung холодильник двухкамерный":
+  ["Samsung холодильник б/у цена Ташкент olx.uz", "холодильник Samsung 350L Ташкент", "Samsung холодильник бу Узбекистан цена"]
+
+  Товар "диван-кровать угловой":
+  ["диван-кровать угловой б/у цена Ташкент olx.uz", "угловой диван Ташкент купить б/у", "диван раскладной Ташкент цена сум"]
+
+Никакого markdown, только JSON-массив."""
 
 
 async def get_search_queries(text: str, session: aiohttp.ClientSession) -> list[str]:
     logger.debug(f"[llm] generating search queries for: {text[:100]}")
-    raw = await _call(Config.QUERY_MODEL, _QUERY_SYSTEM, text, session, max_tokens=150)
+    raw = await _call(Config.QUERY_MODEL, _QUERY_SYSTEM, text, session, max_tokens=200)
     result = _parse_json(raw, "query model")
     if not isinstance(result, list):
         logger.warning(f"[llm] query model returned non-list: {result}")
         return [text]
-    return [str(q) for q in result if q][:3]
+    queries = [str(q) for q in result if q][:3]
+    logger.debug(f"[llm] generated queries: {queries}")
+    return queries
 
 
 # ---------------------------------------------------------------------------
-# Step 2 — main model: extract structured item data
+# Step 2 — extract structured item data
 # ---------------------------------------------------------------------------
 
 _CATEGORY_DESCRIPTION = """
@@ -112,7 +123,7 @@ _CATEGORY_DESCRIPTION = """
 - Микроволновые печи
 - Водонагреватели (бойлеры)
 - Пылесосы
-- Мебель (диваны, кровати, шкафы, столы, стулья, стеллажи)
+- Мебель (диваны, кровати, шкафы, горки, гарнитуры, столы, стулья, стеллажи, комоды, тумбы)
 - Ковры и большие паласы
 - Крупная кухонная техника
 
@@ -127,103 +138,115 @@ _CATEGORY_DESCRIPTION = """
 - Книги, игрушки, игры
 """
 
-# Condition definitions are explicit so the model makes consistent choices
 _CONDITION_GUIDE = """
-Определение состояния — выбери ОДНО:
+Состояние — выбери ОДНО:
 - "new"      : запечатанный, неиспользованный, в оригинальной упаковке
-- "like_new" : использовался очень мало, видимых дефектов нет, всё работает
-- "good"     : заметные следы использования (царапины, потёртости), но полностью рабочий
-- "fair"     : явные дефекты (вмятины, трещины корпуса, частично не работает), но основная функция есть
-- "damaged"  : не работает или требует серьёзного ремонта для использования
-- "unknown"  : из описания невозможно определить состояние
+- "like_new" : использовался очень мало, видимых дефектов нет
+- "good"     : заметные следы использования, но полностью рабочий/функциональный
+- "fair"     : явные дефекты (вмятины, трещины, порванная обивка), но основная функция есть
+- "damaged"  : не работает или требует серьёзного ремонта
+- "unknown"  : из описания невозможно определить
+"""
+
+_FURNITURE_PRICING_GUIDE = """
+ВАЖНО — ценообразование мебели в Ташкенте:
+Большинство мебели в Ташкенте изготовлена местными мебельщиками (не брендовая).
+Цены сильно варьируются в зависимости от размера, материала и состояния.
+Ориентируйся ТОЛЬКО на результаты поиска с OLX.uz и местных площадок.
+НЕ используй цены с российских, европейских или международных сайтов — они нерелевантны.
+Если в результатах поиска нет конкретных объявлений с ценами из Ташкента — ставь market_price_uzs: null и price_confidence: "none".
+Лучше вернуть null чем угадывать цену на основе нерелевантных данных.
 """
 
 
 def _build_extract_system() -> str:
     return f"""Ты анализируешь объявление о продаже б/у товара в Ташкенте, Узбекистан.
-Тебе дано оригинальное описание от продавца И результаты поиска с актуальными рыночными ценами.
-Описание может быть на русском, узбекском или смешанном языке — анализируй как есть.
+Тебе дано описание от продавца И результаты поиска с актуальными ценами.
+Описание может быть на русском, узбекском или смешанном языке.
 
 {_CATEGORY_DESCRIPTION}
 
 {_CONDITION_GUIDE}
 
-Верни ТОЛЬКО валидный JSON-объект с этими полями:
+{_FURNITURE_PRICING_GUIDE}
+
+Верни ТОЛЬКО валидный JSON-объект:
 
 {{
-  "product_name": "чёткое описательное название товара НА РУССКОМ языке",
+  "product_name": "точное название товара НА РУССКОМ (используй местные названия: горка, диван-кровать, кухонный гарнитур и т.д.)",
   "brand": "бренд или null",
   "model": "модель или null",
   "condition": одно из ["new", "like_new", "good", "fair", "damaged", "unknown"],
   "is_in_category": true или false,
   "market_price_uzs": целое число UZS или null,
   "price_confidence": одно из ["high", "medium", "low", "none"],
-  "price_notes": "одно короткое предложение о том, как определена цена, или null",
+  "price_notes": "короткое предложение об источнике цены, или null",
   "needs_repair": true или false,
-  "repair_type": "краткое описание необходимого ремонта, или null",
-  "repair_cost_uzs": целое число UZS или null
+  "repair_type": "описание ремонта или null",
+  "repair_cost_uzs": целое число UZS или null,
+  "desired_price_uzs": нормализуй client_asked_price из строки в целое число UZS.
+    Примеры: "700 тыс" → 700000, "1.5 млн" → 1500000, "50" → 50, "200k" → 200000.
+    Если содержит "usd" → умножь на {_USD_RATE}.
+    Если пусто/невалидно → 0.
 }}
 
 Правила:
-- product_name: ВСЕГДА на русском языке, даже если описание на узбекском.
-- is_in_category: true только если товар явно входит в наш список покупки.
-  При сомнении для БЫТОВОЙ ТЕХНИКИ И МЕБЕЛИ — ставь true.
-  При сомнении для электроники, одежды, транспорта — ставь false.
-- market_price_uzs: медианная цена перепродажи в рабочем состоянии в Ташкенте.
-  Основывай на результатах поиска. null если данных нет.
-- Если в результатах поиска цены в USD — конвертируй: 1 USD = {_USD_RATE} UZS.
+- product_name: ВСЕГДА на русском, используй точное местное название (горка, а не шкаф).
+- is_in_category: true если товар входит в наш список. Для мебели и бытовой техники при сомнении — true.
+- market_price_uzs: медианная цена б/у в Ташкенте из результатов поиска.
+  Если в поиске нет объявлений с ценами из Ташкента/Узбекистана — верни null.
+  Не используй цены с нерелевантных рынков.
+- Если цены в результатах в USD — конвертируй: 1 USD = {_USD_RATE} UZS.
 - price_confidence:
-    "high"   = 3+ совпадающих объявления
+    "high"   = 3+ совпадающих объявления с OLX.uz или местных площадок
     "medium" = 1-2 объявления
-    "low"    = экстраполяция или очень мало данных
-    "none"   = данных не найдено
-- repair_cost_uzs: реалистичная оценка ремонта в ташкентском сервисе. null если ремонт не нужен.
-- needs_repair: true если из описания явно следует неисправность или повреждение.
+    "low"    = экстраполяция, мало данных
+    "none"   = данных из Ташкента не найдено — обязательно ставь null для market_price_uzs
+- needs_repair: true если из описания или фото следует неисправность.
+- repair_cost_uzs: null если ремонт не нужен или неизвестен.
 - Все цены ТОЛЬКО в UZS.
-- Никакого markdown, никаких комментариев — только чистый JSON."""
+- Никакого markdown — только чистый JSON."""
 
 
 async def extract_item(
     text: str,
     search_results: list[dict],
     session: aiohttp.ClientSession,
+    vision_context: "VisionContext | None",
+    desired_price: str,
 ) -> dict:
-    logger.debug(
-        f"[llm] extracting item text={text[:100]!r} search_results={len(search_results)}"
-    )
+    logger.debug(f"[llm] extracting item text={text[:100]!r} search_results={len(search_results)}")
+
     search_block = "\n\n".join(
         f"[{i + 1}] {r['title']}\n{r['snippet']}"
         for i, r in enumerate(search_results)
         if r.get("title") or r.get("snippet")
     ) or "Результаты поиска не найдены."
 
-    user_msg = f"Описание товара от продавца:\n{text}\n\nРезультаты поиска цен:\n{search_block}"
-    raw = await _call(
-        Config.MAIN_MODEL,
-        _build_extract_system(),
-        user_msg,
-        session,
-        max_tokens=600,
+    user_msg = (
+        f"Описание товара от продавца:\n{text}\n\n"
+        f"Результаты поиска цен:\n{search_block}\n"
+        f"client_asked_price: {desired_price}"
     )
+    if vision_context:
+        user_msg += f"\n\n{vision_context.to_text_block()}"
+
+    raw = await _call(Config.MAIN_MODEL, _build_extract_system(), user_msg, session, max_tokens=600)
     result = _parse_json(raw, "extract model")
     logger.debug(f"[llm] extracted: {result}")
     return result  # type: ignore
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — cheap model: generate repair search queries
+# Step 3 — repair search queries
 # ---------------------------------------------------------------------------
 
 _REPAIR_QUERY_SYSTEM = """Ты генерируешь поисковые запросы НА РУССКОМ ЯЗЫКЕ \
-для поиска стоимости ремонта конкретной неисправности в Ташкенте, Узбекистан.
+для поиска стоимости ремонта в Ташкенте, Узбекистан.
 
 Верни ТОЛЬКО JSON-массив из 2 строк. Запросы должны:
-- быть на русском языке
 - содержать конкретный тип ремонта и название устройства
 - содержать "Ташкент" или "цена" или "сколько стоит"
-
-Пример для repair_type="замена подшипника", product="стиральная машина":
-["замена подшипника стиральная машина цена Ташкент", "ремонт стиральной машины подшипник сколько стоит Узбекистан"]
 
 Никакого markdown, только JSON-массив."""
 
@@ -246,7 +269,7 @@ async def get_repair_search_queries(
 
 
 # ---------------------------------------------------------------------------
-# Step 4 — extract ONLY repair cost (focused second pass, saves tokens)
+# Step 4 — repair cost extraction
 # ---------------------------------------------------------------------------
 
 _REPAIR_EXTRACT_SYSTEM = f"""Ты определяешь стоимость ремонта б/у техники в Ташкенте.
@@ -255,14 +278,16 @@ _REPAIR_EXTRACT_SYSTEM = f"""Ты определяешь стоимость ре
 Верни ТОЛЬКО валидный JSON-объект:
 {{
   "repair_cost_uzs": целое число UZS или null,
-  "repair_notes": "одно предложение об источнике оценки, или null"
+  "repair_notes": "объясни откуда взята цена: какое объявление/источник, диапазон найденных цен, почему выбрана эта сумма. Если данных нет — объясни почему null."
 }}
 
 Правила:
-- repair_cost_uzs: реалистичная средняя цена ремонта в ташкентском сервисе.
-- Если в результатах цены в USD — конвертируй: 1 USD = {_USD_RATE} UZS.
-- null если данных недостаточно для оценки.
-- Никакого markdown — только чистый JSON."""
+- repair_cost_uzs: средняя реалистичная цена ремонта в ташкентском сервисе.
+- Используй ТОЛЬКО цены из результатов поиска. Не придумывай цену.
+- Если в результатах нет конкретных цен на этот тип ремонта — верни null.
+- Если цены в USD — конвертируй: 1 USD = {_USD_RATE} UZS.
+- repair_notes ОБЯЗАТЕЛЕН — всегда объясняй своё решение, даже если вернул null.
+- Только чистый JSON."""
 
 
 async def extract_repair_cost(
@@ -271,28 +296,27 @@ async def extract_repair_cost(
     repair_search_results: list[dict],
     session: aiohttp.ClientSession,
 ) -> dict:
-    """
-    Focused second pass — only extracts repair cost from repair-specific search results.
-    Much cheaper than re-running the full extract_item prompt.
-    """
+    # Skip the LLM call entirely if search came back empty — saves tokens and
+    # avoids the model hallucinating a repair cost from zero data.
+    actual_results = [r for r in repair_search_results if r.get("snippet", "").strip()]
+    if not actual_results:
+        logger.debug("[llm] repair search empty — skipping extract, returning null")
+        return {
+            "repair_cost_uzs": None,
+            "repair_notes": "Поиск не вернул результатов по стоимости ремонта в Ташкенте.",
+        }
+
     search_block = "\n\n".join(
         f"[{i + 1}] {r['title']}\n{r['snippet']}"
-        for i, r in enumerate(repair_search_results)
-        if r.get("title") or r.get("snippet")
-    ) or "Результаты поиска не найдены."
+        for i, r in enumerate(actual_results)
+    )
 
     user_msg = (
         f"Устройство: {product_name}\n"
         f"Тип ремонта: {repair_type}\n\n"
-        f"Результаты поиска по ремонту:\n{search_block}"
+        f"Результаты поиска:\n{search_block}"
     )
-    raw = await _call(
-        Config.QUERY_MODEL,  # cheap model is enough for this simple extraction
-        _REPAIR_EXTRACT_SYSTEM,
-        user_msg,
-        session,
-        max_tokens=150,
-    )
+    raw = await _call(Config.QUERY_MODEL, _REPAIR_EXTRACT_SYSTEM, user_msg, session, max_tokens=200)
     result = _parse_json(raw, "repair extract model")
     logger.debug(f"[llm] repair cost extracted: {result}")
     return result  # type: ignore

@@ -58,4 +58,4 @@ class Config:
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
     PRICER_URL: str = os.getenv("PRICER_URL", "http://localhost:8001")
     DEBUG: bool = os.getenv("DEBUG", "1") == "1"
-     
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

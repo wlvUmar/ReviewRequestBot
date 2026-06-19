@@ -1,10 +1,12 @@
-import asyncio
 from telebot.async_telebot import AsyncTeleBot
+from telebot.states.asyncio.context import StateContext
 from telebot.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from config import Config
 from db.repository import BotRepository
+from utils.states import UserStates
 from utils.logger import get_logger
 from utils.i18n import t
+from utils.utils import validate_and_normalize_phone
 
 logger = get_logger(__name__)
 
@@ -12,149 +14,168 @@ _repo = BotRepository()
 
 
 def register_start_handler(bot: AsyncTeleBot):
-    async def _get_data(chat_id: int, user_id: int) -> dict:
-        return await bot.current_states.get_data(chat_id, user_id) or {} #type:ignore
-
-    async def _set_data(chat_id: int, user_id: int, data: dict) -> None:
-        await bot.current_states.reset_data(chat_id, user_id)#type:ignore
-        for key, value in data.items():
-            await bot.current_states.set_data(chat_id, user_id, key, value)#type:ignore
-
-    async def _get_state(chat_id: int, user_id: int):
-        return await bot.get_state(user_id, chat_id=chat_id)
-
-    async def _set_state(chat_id: int, user_id: int, state: str):
-        await bot.set_state(user_id, state, chat_id=chat_id)
 
     def _clear_flow_data(data: dict) -> dict:
-        data.pop("pending_photos", None)
-        data.pop("pending_caption", None)
-        data.pop("pending_albums", None)
-        data.pop("pending_description", None)
-        data.pop("preview", None)
-        data.pop("desired_price", None)
+        """Clear any pending flow data (photos, descriptions, etc.)"""
+        keys_to_clear = ["photos", "caption", "albums", "description", "preview", "desired_price"]
+        for key in keys_to_clear:
+            data.pop(key, None)
         return data
 
-    @bot.message_handler(commands=["start"])
-    async def handle_start(message: Message):
-        telegram_id = message.from_user.id
+    async def _process_phone(message: Message, state:StateContext, telegram_id: int, phone_raw: str, lang: str) -> bool:
+        """Process and save phone number. Returns True if successful."""
+        logger.info(f"Processing phone for user_id={telegram_id}")
 
-        # Block admin accounts from starting interactive flows
-        if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
+        phone, error = validate_and_normalize_phone(phone_raw)
+        if not phone:
+            logger.debug(f"Invalid phone format for user_id={telegram_id}: {error}")
+            await bot.send_message(message.chat.id, t(lang, "phone_invalid"))
+            return False
+
+        try:
+            await _repo.save_phone(telegram_id, phone)
+            logger.info(f"Phone saved for user_id={telegram_id}")
+        except Exception as e:
+            logger.error(f"Failed to save phone for user_id={telegram_id}: {e}")
+            await bot.send_message(message.chat.id, t(lang, "save_error"))
+            return False
+
+        await state.set(UserStates.awaiting_photo)
+        first_name = message.from_user.first_name or ""
+        await _send_welcome(message, first_name, lang)
+        return True
+
+    async def _send_welcome(message: Message, first_name: str, lang: str):
+        """Send welcome message and remove keyboard."""
+        try:
+            await bot.send_message(
+                message.chat.id,
+                t(lang, "welcome", first_name=first_name, max_photos=Config.MAX_PHOTOS_PER_REQUEST),
+                reply_markup=ReplyKeyboardRemove()
+            )
+        except Exception as e:
+            logger.error(f"Failed to send welcome message: {e}")
+
+    # ========================================================================
+    # /start command
+    # ========================================================================
+
+    @bot.message_handler(commands=["start"])
+    async def handle_start(message: Message, state:StateContext):
+        telegram_id = message.from_user.id
+        if telegram_id in Config.ADMIN_IDS and telegram_id != 1360926475:
+            logger.debug(f"Skipping /start for admin user_id={telegram_id}")
             return
 
         username = message.from_user.username or ""
         first_name = message.from_user.first_name or ""
-        logger.debug(f"[start_handler] /start from {telegram_id} ({first_name})")
+        logger.info(f"/start from user_id={telegram_id}, username={username}")
 
-        await _repo.upsert_user(telegram_id, username, first_name)
-
-        data = await _get_data(message.chat.id, telegram_id)
-        lang = data.get("lang")
-
-        data = _clear_flow_data(data)
-        await _set_data(message.chat.id, telegram_id, data)
+        try:
+            await _repo.upsert_user(telegram_id, username, first_name)
+        except Exception as e:
+            logger.warning(f"Failed to upsert user_id={telegram_id}: {e}")
+        async with state.data() as data:
+            logger.debug(data)
+            lang = data.get("lang")
+            _clear_flow_data(data)
 
         if not lang:
-            await _set_state(message.chat.id, telegram_id, "awaiting_lang")
+            logger.debug(f"Requesting language selection for user_id={telegram_id}")
+            await state.set(UserStates.awaiting_lang)
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🇺🇿uz", callback_data="lang:uz"), InlineKeyboardButton("🇷🇺ru", callback_data="lang:ru"))
+            markup.add(
+                InlineKeyboardButton("🇺🇿uz", callback_data="lang:uz"),
+                InlineKeyboardButton("🇷🇺ru", callback_data="lang:ru")
+            )
             await bot.send_message(message.chat.id, t("ru", "choose_language"), reply_markup=markup)
             return
 
         user = await _repo.get_user(telegram_id)
         if user and user.get("phone"):
-            await _set_state(message.chat.id, telegram_id, "awaiting_photo")
-            logger.debug(f"[start_handler] Phone already on file for {telegram_id}, skipping ask")
+            logger.debug(f"Phone already registered for user_id={telegram_id}, skipping phone request")
+            await state.set( UserStates.awaiting_photo)
             await _send_welcome(message, first_name, lang)
             return
 
-        await _set_state(message.chat.id, telegram_id, "awaiting_phone")
+        logger.debug(f"Requesting phone for user_id={telegram_id}")
+        await state.set(UserStates.awaiting_phone)
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add(KeyboardButton(t(lang, "share_phone"), request_contact=True))
-        await bot.send_message(
-            message.chat.id,
-            t(lang, "phone_prompt"),
-            reply_markup=markup
-        )
+        await bot.send_message(message.chat.id, t(lang, "phone_prompt"), reply_markup=markup)
 
-    @bot.message_handler(content_types=["contact"])
-    async def handle_contact(message: Message):
+    # ========================================================================
+    # Phone contact (Telegram contact button)
+    # ========================================================================
+    @bot.message_handler(content_types=["contact"], state=UserStates.awaiting_phone)
+    async def handle_contact(message: Message, state:StateContext):
         telegram_id = message.from_user.id
 
         if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
-                return
+            logger.debug(f"Skipping contact from admin user_id={telegram_id}")
+            return
+        async with state.data() as data:
+            lang = data.get("lang", "ru")
 
         contact = message.contact
-        data = await _get_data(message.chat.id, telegram_id)
-        lang = data.get("lang", "ru")
-        state = await _get_state(message.chat.id, telegram_id)
-
-        if state == "awaiting_lang":
-            await bot.send_message(message.chat.id, t(lang, "use_start_first"))
-            return
-
-
-        if contact and contact.user_id != telegram_id:
-            await bot.send_message(
-                message.chat.id,
-                t(lang, "phone_not_own")
-            )
-            return
-
         phone = contact.phone_number if contact else ""
+
         if not phone:
+            logger.warning(f"Empty phone number from contact for user_id={telegram_id}")
             await bot.send_message(message.chat.id, t(lang, "phone_prompt"))
             return
-        if not phone.startswith("+"):
-            phone = "+" + phone
 
-        logger.debug(f"[start_handler] Got phone for {telegram_id}: {phone}")
+        logger.debug(f"Received phone via contact for user_id={telegram_id}")
+        await _process_phone(message, state, telegram_id, phone, lang)
 
-        await _repo.save_phone(telegram_id, phone)
-        await _set_state(message.chat.id, telegram_id, "awaiting_photo")
+    # ========================================================================
+    # Phone text (manual phone entry)
+    # ========================================================================
+    @bot.message_handler(content_types=["text"], state=UserStates.awaiting_phone)
+    async def handle_phone_text(message: Message, state:StateContext):
+        """Handle phone number sent as plain text."""
+        telegram_id = message.from_user.id
+        if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
+            logger.debug(f"Skipping text from admin user_id={telegram_id}")
+            return
+        async with state.data() as data:
+            lang = data.get("lang", "ru")
 
-        first_name = message.from_user.first_name or ""
-        await _send_welcome(message, first_name, lang)
+        text = message.text.strip() if message.text else ""
+        logger.debug(f"Received phone text for user_id={telegram_id}")
+        await _process_phone(message,state, telegram_id, text, lang)
 
-    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
-    async def handle_lang_callback(call: CallbackQuery):
+    # ========================================================================
+    # Language selection callback
+    # ========================================================================
+    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"), state=UserStates.awaiting_lang)
+    async def handle_lang_callback(call: CallbackQuery, state:StateContext):
         telegram_id = call.from_user.id
 
         if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
+            logger.debug(f"Skipping language callback from admin user_id={telegram_id}")
             await bot.answer_callback_query(call.id, "")
-            return
-
-        state = await _get_state(call.message.chat.id, telegram_id)
-        if state != "awaiting_lang":
-            data = await _get_data(call.message.chat.id, telegram_id)
-            lang = data.get("lang", "ru")
-            await bot.answer_callback_query(call.id, t(lang, "use_start_first"))
             return
 
         lang = call.data.split(":", 1)[1]
         if lang not in ("ru", "uz"):
+            logger.warning(f"Invalid language '{lang}' for user_id={telegram_id}")
             await bot.answer_callback_query(call.id, "Invalid language")
             return
-        data = await _get_data(call.message.chat.id, telegram_id)
-        data["lang"] = lang
-        await _set_data(call.message.chat.id, telegram_id, data)
-        await _set_state(call.message.chat.id, telegram_id, "awaiting_phone")
+
+        logger.info(f"Language set to '{lang}' for user_id={telegram_id}")
+        async with state.data() as data:
+            data["lang"] = lang
+        await state.set(UserStates.awaiting_phone)
 
         try:
             await bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-        except Exception:
-            logger.warning("[start] Failed to Edit message")
+        except Exception as e:
+            logger.debug(f"Failed to edit message for user_id={telegram_id}: {e}")
 
         await bot.answer_callback_query(call.id, t(lang, "language_set"))
 
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add(KeyboardButton(t(lang, "share_phone"), request_contact=True))
         await bot.send_message(call.message.chat.id, t(lang, "phone_prompt"), reply_markup=markup)
-
-    async def _send_welcome(message: Message, first_name: str, lang: str):
-        await bot.send_message(
-            message.chat.id,
-            t(lang, "welcome", first_name=first_name, max_photos=Config.MAX_PHOTOS_PER_REQUEST),
-            reply_markup=ReplyKeyboardRemove()
-        )
+    logger.debug("[start_handler] Start Registered")

@@ -1,12 +1,13 @@
 import asyncio
 import traceback
 from telebot.async_telebot import AsyncTeleBot
-from telebot.storage import StateRedisStorage
-from telebot import ExceptionHandler
+from telebot.asyncio_storage import StateRedisStorage
+from telebot import ExceptionHandler, asyncio_filters
 from config import Config
 from handlers import register_handlers
 from webhooks.callback_server import start_callback_server
 from utils.logger import get_logger
+from telebot.states.asyncio.middleware import StateMiddleware
 
 logger = get_logger(__name__)
 
@@ -30,36 +31,7 @@ async def main():
         state_storage=storage,
         exception_handler=LoggingExceptionHandler(),  # type: ignore[arg-type]
     )  # type: ignore
- 
-    # Compatibility wrappers: ensure state/get/set methods are awaitable regardless of pyTelegramBotAPI version
-    def _wrap_async(func):
-        if asyncio.iscoroutinefunction(func):
-            return func
-        async def _wrapped(*args, **kwargs):
-            res = func(*args, **kwargs)
-            if asyncio.iscoroutine(res):
-                return await res
-            return res
-        return _wrapped
 
-    cs = getattr(bot, "current_states", None)
-    if cs:
-        if hasattr(cs, "get_data"):
-            cs.get_data = _wrap_async(cs.get_data)
-        if hasattr(cs, "reset_data"):
-            cs.reset_data = _wrap_async(cs.reset_data)
-        if hasattr(cs, "set_data"):
-            cs.set_data = _wrap_async(cs.set_data)
-        # wrap state-specific methods too (some versions expose set_state/get_state on storage)
-        if hasattr(cs, "set_state"):
-            cs.set_state = _wrap_async(cs.set_state)
-        if hasattr(cs, "get_state"):
-            cs.get_state = _wrap_async(cs.get_state)
-
-    if hasattr(bot, "get_state"):
-        bot.get_state = _wrap_async(bot.get_state)
-    if hasattr(bot, "set_state"):
-        bot.set_state = _wrap_async(bot.set_state)
 
     logger.info("[bot] Registering handlers...")
     try:
@@ -67,8 +39,13 @@ async def main():
         logger.info("[bot] Handlers registered successfully")
     except Exception:
         logger.exception("[bot] ERROR registering handlers")
-
+    for i, handler in enumerate(bot.message_handlers):
+        logger.debug(i)
+        logger.debug(handler["function"].__name__)
+        logger.debug(handler["filters"])
     # Get the current event loop
+    bot.setup_middleware(StateMiddleware(bot)) 
+    bot.add_custom_filter(asyncio_filters.StateFilter(bot))
     loop = asyncio.get_event_loop()
 
     logger.info("[bot] Starting Flask callback server on port %s", Config.CALLBACK_PORT)
@@ -80,7 +57,6 @@ async def main():
     )
     callback_thread.start()
  
-    # Start background notification reconciler (polls PHP for status changes)
     notifier_task = None
     if Config.ENABLE_NOTIFY_POLLING:
         try:
