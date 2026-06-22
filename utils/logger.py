@@ -9,6 +9,11 @@ _LOG_FILE = Path(__file__).resolve().parents[1] / "logs" / "reviewrequestbot.log
 _CONFIGURED = False
 
 
+class _SuppressPollingTimeoutNoise(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return "RequestTimeout" not in msg and "ClientOSError" not in msg
+
 def _configure_logging() -> None:
     global _CONFIGURED
     if _CONFIGURED:
@@ -17,7 +22,7 @@ def _configure_logging() -> None:
     _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s]: %(message)s",
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -30,17 +35,18 @@ def _configure_logging() -> None:
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(_SuppressPollingTimeoutNoise())
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(formatter)
-
+    console_handler.addFilter(_SuppressPollingTimeoutNoise())
     root.addHandler(file_handler)
     root.addHandler(console_handler)
 
     for noisy in ("urllib3", "asyncio", "telebot", "werkzeug", "aiohttp", "httpx"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-
+    logging.getLogger("TeleBot").addFilter(_SuppressPollingTimeoutNoise())
     _CONFIGURED = True
 
 

@@ -5,14 +5,13 @@ services/request_service.py
 import asyncio
 import secrets
 import string
-import html
 import re
 import base64
 from config import Config
 from db.repository import BotRepository
 from services.api_service import ApiService
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, InputMediaPhoto
 from utils.i18n import t
 from utils.logger import get_logger
 from utils.currency import format_uzs
@@ -40,6 +39,7 @@ class RequestService:
         telegram_id: int,
         file_ids: list[str],
         description: str,
+        phone,
         desired_price: str = "0",
         lang =  "ru"
     ) -> None:
@@ -52,13 +52,13 @@ class RequestService:
 
         # Pass images to pricer for vision + analysis
         analysis = await self._analyze_product(description, desired_price, images)
-        
-        # if analysis is not None:
-            # rejected, rejection_msg = self._check_rejection(analysis, lang)
-            # if rejected:
-            #     logger.info(f"[submit] Автоматик рад этилди telegram_id={telegram_id}: {rejection_msg}")
-            #     await self.bot.send_message(chat_id, rejection_msg)
-            #     return
+
+        if analysis is not None:
+            rejected, rejection_msg = self._check_rejection(analysis, lang)
+            if rejected:
+                logger.info(f"[submit] Автоматик рад этилди telegram_id={telegram_id}: {rejection_msg}")
+                await self.bot.send_message(chat_id, rejection_msg)
+                return
 
         enriched_description = self._build_enriched_description(
             description, desired_price, analysis,
@@ -86,9 +86,7 @@ class RequestService:
         )
 
         preview_file_id = file_ids[0] if file_ids else None
-        await self._notify_admins(
-            request_id, len(file_ids), enriched_description, preview_file_id
-        )
+        await self._notify_admins(request_id, enriched_description,  phone, file_ids)
 
         await self.bot.send_message(chat_id, t(lang, "request_submitted"))
 
@@ -96,12 +94,12 @@ class RequestService:
     # Rejection logic
     # -------------------------------------------------------------------------
     def _check_rejection(self, analysis: dict, lang="ru") -> tuple[bool, str]:
-        if not analysis.get("is_in_category", True):
-            return False, t(lang, "reject_not_in_category")
-
-        profit = analysis.get("profit_uzs", 0)
-        if profit is not None and profit < PROFIT_THRESHOLD_UZS:
-            return False, t(lang, "reject_low_profit")
+        # if not analysis.get("is_in_category", True):
+        #     return (True, t(lang, "reject_not_in_category"))
+        #
+        # profit = analysis.get("profit_uzs")
+        # if profit is not None and profit < PROFIT_THRESHOLD_UZS:
+        #     return True, t(lang, "reject_low_profit")
 
         return False, ""
 
@@ -118,10 +116,10 @@ class RequestService:
 
         if analysis is None:
             return "\n".join(lines) + "\n" + f"нархи: {desired_price}"
-        
+
         if analysis.get("desired_price_uzs"):
             lines.append(f"\nнархи: {analysis.get('desired_price_uzs', desired_price)} UZS")
-        
+
         block = ["\n--- ИИ Таҳлили ---"]
 
         if analysis.get("product_name"):
@@ -184,12 +182,12 @@ class RequestService:
     # Notification
     # -------------------------------------------------------------------------
     async def notify_review_result(
-        self,
-        request_id: int,
-        status: str,
-        price: str,
-        notes: str,
-        contact_phone: str = "",
+            self,
+            request_id: int,
+            status: str,
+            price: str,
+            notes: str,
+            contact_phone: str = "",
     ) -> bool:
         logger.info(
             f"[notify] request_id={request_id} status={status} price={price} "
@@ -212,30 +210,55 @@ class RequestService:
             return current_state in (1, 2)
 
         telegram_id = mapping["telegram_id"]
+        lang = "ru"
         try:
-            async with self.bot.retrieve_data(chat_id=telegram_id, user_id=telegram_id, bot_id=self.bot.bot_id) as data:
+            async with self.bot.retrieve_data(chat_id=telegram_id, user_id=telegram_id, bot_id=self.bot.bot_id) as data: #type: ignore
                 lang = data.get("lang", "ru")
-        except Exception:
-            logger.warning("[reqeust_service] Failed to retrieve data", exc_info=True)
-        
+        except Exception as e:
+            logger.warning(
+                f"[notify] Failed to retrieve lang for telegram_id={telegram_id}, "
+                f"falling back to ru",
+                exc_info=True,
+            )
 
         if status == "approved" and price:
-            text = f"Баҳо: {price}"
+            text = t(lang, "approved_price", price=price)
             if contact_phone:
-                text += f"\nАлоқа: {contact_phone}"
+                text += "\n" + t(lang, "approved_contact", phone=contact_phone)
             if notes:
-                text += f"\nИзоҳ: {notes}"
+                text += "\n" + t(lang, "approved_notes", notes=notes)
         else:
             text = t(lang, "reject")
             if notes:
-                text += f"\nИзоҳ: {notes}"
+                text += "\n" + t(lang, "reject_notes", notes=notes)
 
         try:
-            await self.bot.send_message(telegram_id, text)
+            message = await self.bot.send_message(telegram_id, text)
+
+            if not message or not hasattr(message, 'message_id') or message.message_id is None:
+                logger.error(f"[notify] Invalid response: request_id={request_id}, message_id=None")
+                await self.repo.release_request_notification(request_id)
+                return False
+
+            logger.info(f"[notify] Message sent successfully: request_id={request_id}, message_id={message.message_id}")
+            # Optionally: store message_id for audit trail / future verification
+            # await self.repo.store_notification_message_id(request_id, message.message_id)
+
             await self.repo.mark_request_notified(request_id)
             logger.info(f"[notify] Муваффақиятли юборилди request_id={request_id}")
             return True
+
         except Exception as e:
+            error_str = str(e).lower()
+
+            # These are permanent failures — don't retry
+            if "blocked" in error_str or "user" in error_str or "not found" in error_str:
+                logger.warning(f"[notify] User issue request_id={request_id}: {e}")
+                # Mark as notified anyway (user can't receive messages)
+                await self.repo.mark_request_notified(request_id)
+                return False
+
+            # Temporary failures — release claim so poller can retry
             logger.error(f"[notify] Хатолик request_id={request_id}: {e}", exc_info=True)
             await self.repo.release_request_notification(request_id)
             return False
@@ -251,10 +274,10 @@ class RequestService:
     ) -> dict | None:
         import aiohttp
         url = f"{Config.PRICER_URL}/analyze"
-        
+
         # Encode images to base64
         b64_images = [base64.b64encode(img_bytes).decode() for img_bytes, _ in images]
-        
+
         payload = {
             "text": description,
             "desired_price": desired_price,
@@ -303,9 +326,9 @@ class RequestService:
     async def _notify_admins(
         self,
         request_id: int,
-        photo_count: int,
         description: str,
-        preview_file_id: str | None = None,
+        phone,
+        preview_file_ids,
     ) -> None:
         admin_ids = list(Config.ADMIN_IDS)
         if not admin_ids:
@@ -329,10 +352,12 @@ class RequestService:
 
         clean_desc = re.sub(r"#([A-Za-z0-9_]+)=[0-9]{5,15}", "", description or "").strip()
 
+        phone = f"📞 Телефон рақами: <code>{phone}</code>\n" if phone else ""
+
         caption = (
             f"<b>Янги сўров</b>\n\n"
             f"ID: <code>{request_id}</code>\n"
-            f"Расмлар: {photo_count}\n\n"
+            f"{phone}"
             f"{clean_desc}"
         )
         markup = InlineKeyboardMarkup()
@@ -340,29 +365,31 @@ class RequestService:
 
         await asyncio.gather(
             *[
-                self._send_admin_notification(aid, caption, markup, preview_file_id)
+                self._send_admin_notification(aid, caption, markup, preview_file_ids)
                 for aid in admin_ids
             ],
             return_exceptions=True,
         )
 
     async def _send_admin_notification(
-        self,
-        admin_id: int,
-        message: str,
-        markup: InlineKeyboardMarkup,
-        preview_file_id: str | None = None,
+            self,
+            admin_id: int,
+            message: str,
+            markup,
+            preview_file_ids: list | None = None,
     ) -> None:
         try:
-            if preview_file_id:
-                await self.bot.send_photo(
-                    admin_id, preview_file_id, caption=message,
-                    parse_mode="HTML", reply_markup=markup,
-                )
-            else:
-                await self.bot.send_message(admin_id, message, parse_mode="HTML", reply_markup=markup)
+            if preview_file_ids:
+                media = [
+                    InputMediaPhoto(file_id)
+                    for file_id in preview_file_ids[:10]
+                ]
+
+            await self.bot.send_media_group(admin_id,media)
+            await self.bot.send_message(admin_id,message,parse_mode="HTML",reply_markup=markup)
+
         except Exception as e:
-            logger.warning(f"[admin_notify] Админга хабар юборишда хатолик {admin_id}: {e}")
+            logger.warning(f"[admin_notify] error {admin_id}: {e}")
 
     def _generate_access_token(self, length: int = 32) -> str:
         alphabet = string.ascii_letters + string.digits

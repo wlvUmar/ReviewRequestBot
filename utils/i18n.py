@@ -37,13 +37,17 @@ MESSAGES = {
         "preview_more_photos": "(➕{more} фото, показано первое)",
 
         "image_download_failed": "⚠️ Не удалось загрузить изображения. Попробуйте ещё раз.",
-        "request_submitted": "📨 Изображения отправлены. Скоро отправим оценку.",
+        "request_submitted": "📨 Изображения отправлены. Скоро отправим оценку. Возможно, мы вам позвоним.",
         "api_upload_failed": "⏳ Не удалось отправить изображение. Попробуйте через 1–2 минуты.",
         "save_error": "❌ Произошла ошибка при сохранении данных. Пожалуйста, попробуйте позже.",
         "submitting_request": "⏳ Отправляем заявку...",
         "reject_not_in_category": "ℹ️ Спасибо за обращение. К сожалению, мы не скупаем этот вид товара. Мы принимаем бытовую технику и мебель.",
         "reject_low_profit": "ℹ️ Спасибо за обращение. К сожалению, мы не сможем предложить подходящую цену по этому товару.",
         "reject": "📦 Спасибо! Мы получили фотографии. Сейчас не можем дать точную оценку.",
+        "approved_price": "💰 Оценка: {price}",
+        "approved_contact": "📞 Контакт: {phone}",
+        "approved_notes": "📝 Комментарий: {notes}",
+        "reject_notes": "📝 Комментарий: {notes}",
     },
 
     "uz": {
@@ -83,7 +87,7 @@ MESSAGES = {
         "preview_more_photos": "(➕{more} rasm, birinchi ko'rsatilgan)",
 
         "image_download_failed": "⚠️ Rasmlarni yuklab olishning imkoni bo'lmadi. Yana urinib ko'ring.",
-        "request_submitted": "📨 Rasmlar yuborildi. Tez orada baho yuboramiz.",
+        "request_submitted": "📨 Rasmlar yuborildi. Tez orada baho yuboramiz. Sizga qo‘ng‘iroq qilishimiz mumkin.",
         "api_upload_failed": "⏳ Rasmni yuborib bo'lmadi. 1–2 daqiqadan so'ng qayta urinib ko'ring.",
         "save_error": "❌ Ma'lumotlarni saqlashda xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring.",
         "submitting_request": "⏳ So'rov yuborilmoqda...",
@@ -91,6 +95,10 @@ MESSAGES = {
         "reject_not_in_category": "ℹ️ Murojaat uchun rahmat. Afsuski, biz bu turdagi mahsulotni sotib olmaymiz. Biz maishiy texnika va mebel qabul qilamiz.",
         "reject_low_profit": "ℹ️ Murojaat uchun rahmat. Afsuski, bu mahsulot uchun mos narx taklif eta olmaymiz.",
         "reject": "📦 Rahmat! Rasmlarni oldik. Hozir aniq baho bera olmaymiz.",
+        "approved_price": "💰 Baho: {price}",
+        "approved_contact": "📞 Aloqa: {phone}",
+        "approved_notes": "📝 Izoh: {notes}",
+        "reject_notes": "📝 Izoh: {notes}",
     },
 }
 DEFAULT_LANG = "ru"

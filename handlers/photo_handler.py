@@ -25,10 +25,8 @@ async def finalize_submission(bot: AsyncTeleBot, state: StateContext, chat_id: i
         desired_price: str = data.pop("desired_price", "0")
         data.pop("albums", None)
         data.pop("description", None)
-
+        phone = data.get("phone", None)
     full_description = "\n".join(filter(None, [caption, description]))
-    if desired_price:
-        full_description = f"{full_description}\n{t(lang, 'desired_price_label')}: {desired_price}".strip()
 
     if not file_ids:
         logger.warning(f"Submission attempt with no photos for user_id={telegram_id}")
@@ -46,6 +44,7 @@ async def finalize_submission(bot: AsyncTeleBot, state: StateContext, chat_id: i
         file_ids=file_ids,
         description=full_description,
         desired_price=desired_price,
+        phone=phone,
         lang=lang
     )
 

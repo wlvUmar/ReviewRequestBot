@@ -22,15 +22,16 @@ def register_start_handler(bot: AsyncTeleBot):
             data.pop(key, None)
         return data
 
-    async def _process_phone(message: Message, state:StateContext, telegram_id: int, phone_raw: str, lang: str) -> bool:
-        """Process and save phone number. Returns True if successful."""
+    async def _process_phone(message: Message, state: StateContext, telegram_id: int, phone_raw: str,
+                             lang: str) -> str | None:
+        """Process and save phone number. Returns phone if successful, None otherwise."""
         logger.info(f"Processing phone for user_id={telegram_id}")
 
         phone, error = validate_and_normalize_phone(phone_raw)
         if not phone:
             logger.debug(f"Invalid phone format for user_id={telegram_id}: {error}")
             await bot.send_message(message.chat.id, t(lang, "phone_invalid"))
-            return False
+            return None
 
         try:
             await _repo.save_phone(telegram_id, phone)
@@ -38,12 +39,12 @@ def register_start_handler(bot: AsyncTeleBot):
         except Exception as e:
             logger.error(f"Failed to save phone for user_id={telegram_id}: {e}")
             await bot.send_message(message.chat.id, t(lang, "save_error"))
-            return False
+            return None
 
         await state.set(UserStates.awaiting_photo)
         first_name = message.from_user.first_name or ""
         await _send_welcome(message, first_name, lang)
-        return True
+        return phone  # ← Just return the phone
 
     async def _send_welcome(message: Message, first_name: str, lang: str):
         """Send welcome message and remove keyboard."""
@@ -114,19 +115,19 @@ def register_start_handler(bot: AsyncTeleBot):
         if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
             logger.debug(f"Skipping contact from admin user_id={telegram_id}")
             return
-        async with state.data() as data:
-            lang = data.get("lang", "ru")
 
         contact = message.contact
         phone = contact.phone_number if contact else ""
+        async with state.data() as data:
+            lang = data.get("lang", "ru")
 
-        if not phone:
-            logger.warning(f"Empty phone number from contact for user_id={telegram_id}")
-            await bot.send_message(message.chat.id, t(lang, "phone_prompt"))
-            return
-
-        logger.debug(f"Received phone via contact for user_id={telegram_id}")
-        await _process_phone(message, state, telegram_id, phone, lang)
+            if not phone:
+                logger.warning(f"Empty phone number from contact for user_id={telegram_id}")
+                await bot.send_message(message.chat.id, t(lang, "phone_prompt"))
+                return
+            data["photo"] = phone
+            logger.debug(f"Received phone via contact for user_id={telegram_id}")
+            await _process_phone(message, state, telegram_id, phone, lang)
 
     # ========================================================================
     # Phone text (manual phone entry)
@@ -138,13 +139,14 @@ def register_start_handler(bot: AsyncTeleBot):
         if telegram_id in Config.ADMIN_IDS and not Config.DEBUG:
             logger.debug(f"Skipping text from admin user_id={telegram_id}")
             return
-        async with state.data() as data:
-            lang = data.get("lang", "ru")
 
         text = message.text.strip() if message.text else ""
         logger.debug(f"Received phone text for user_id={telegram_id}")
-        await _process_phone(message,state, telegram_id, text, lang)
-
+        async with state.data() as data:
+            lang = data.get("lang", "ru")
+            phone = await _process_phone(message,state, telegram_id, text, lang)
+            if phone:
+                data["phone"] = phone
     # ========================================================================
     # Language selection callback
     # ========================================================================

@@ -28,14 +28,19 @@ class NotificationService:
         while not self._stop.is_set():
             try:
                 pending = await self.repo.get_pending_unnotified()
+                logger.debug(f"[notifier] Found {len(pending)} pending requests")
+
                 for mapping in pending:
                     req_id = mapping.get("request_id")
                     if not req_id:
                         continue
+
                     # Ask PHP for current status
                     status_payload = await self.api.get_request_status(int(req_id))
                     if not status_payload:
+                        logger.debug(f"[notifier] Could not get status for request_id={req_id}")
                         continue
+
                     status = status_payload.get("status")
                     if status in ("approved", "rejected"):
                         # Use the pre-created RequestService instance
@@ -53,6 +58,7 @@ class NotificationService:
                         )
             except Exception as e:
                 logger.exception("[notifier] error: %s", e)
+
             # Sleep until next poll
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self.interval)
