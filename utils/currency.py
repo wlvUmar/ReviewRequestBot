@@ -6,42 +6,25 @@ USD_RATE = 12000
 
 def parse_price(raw: str) -> str:
     """
-    Extract the numeric part from user input.
-    Return it as-is, no currency conversion.
-    
+    Validate that user input contains a recognizable number, and return the
+    input string unchanged (currency symbols/units intact) so a downstream
+    LLM can do the actual parsing (multipliers, currency conversion, etc).
+
     Examples:
-        "700 тыс" → "700"
-        "150 usd" → "150"
-        "1,500,000" → "1500000"
-        "700 k" → "700"
+        "700 тыс"   -> "700 тыс"
+        "150 usd"   -> "150 usd"
+        "1,500,000" -> "1,500,000"
+        "700 k"     -> "700 k"
+        "49$"       -> "49$"
+        "1.5 млн"   -> "1.5 млн"
+        "€700"      -> "€700"
     """
     text = raw.strip()
-    
-    # Remove spaces and apostrophes that separate thousands
-    text = re.sub(r"[\s']", "", text)
-    
-    # Extract all digit sequences and dots/commas
-    # Then clean up to just digits (remove commas, keep dots if decimal)
-    match = re.search(r"[\d.,]+", text)
-    
-    if not match:
-        raise ValueError(f"No number found in: {raw!r}")
-    
-    number = match.group(0)
-    
-    # Normalize: remove commas (thousands separators), collapse multiple dots
-    number = number.replace(",", "")
-    number = re.sub(r"\.{2,}", "", number)
-    
-    # Remove trailing dots (from abbreviations like "тыс.")
-    number = number.rstrip(".")
-    
-    # Must have at least one digit
-    if not number or not any(c.isdigit() for c in number):
-        raise ValueError(f"No valid number in: {raw!r}")
-    
-    return number
 
+    if not text or not re.search(r"\d", text):
+        raise ValueError(f"No number found in: {raw!r}")
+
+    return text
 
 def format_uzs(uzs: int) -> str:
     """Format integer UZS for display: '1 200 000 UZS'"""

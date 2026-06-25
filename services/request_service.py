@@ -85,7 +85,6 @@ class RequestService:
             description=description,
         )
 
-        preview_file_id = file_ids[0] if file_ids else None
         await self._notify_admins(request_id, enriched_description,  phone, file_ids)
 
         await self.bot.send_message(chat_id, t(lang, "request_submitted"))
@@ -100,7 +99,7 @@ class RequestService:
         # profit = analysis.get("profit_uzs")
         # if profit is not None and profit < PROFIT_THRESHOLD_UZS:
         #     return True, t(lang, "reject_low_profit")
-
+ 
         return False, ""
 
     # -------------------------------------------------------------------------
@@ -142,7 +141,7 @@ class RequestService:
             raw = analysis["condition"]
             block.append(f"Ҳолат: {condition_map.get(raw, raw)}")
 
-        market = analysis.get("market_price_uzs")
+        market = analysis.get("market_price_uzs",0)
         if market:
             confidence_map = {
                 "high":   "юқори",
@@ -157,16 +156,16 @@ class RequestService:
                 + (f" [ишонч: {conf_label}]" if conf_label else "")
             )
 
-        fast_sell = analysis.get("fast_sell_price_uzs")
+        fast_sell = analysis.get("fast_sell_price_uzs",0)
         if fast_sell:
             block.append(f"Тез сотиш нархи: {format_uzs(fast_sell)}")
 
-        profit = analysis.get("profit_uzs")
+        profit = analysis.get("profit_uzs",0)
         if profit is not None:
             block.append(f"Тахминий фойда: {format_uzs(profit)}")
 
         if analysis.get("needs_repair") and analysis.get("repair_type"):
-            repair_cost = analysis.get("repair_cost_uzs")
+            repair_cost = analysis.get("repair_cost_uzs",0)
             repair_line = f"Таъмирлаш керак: {analysis['repair_type']}"
             if repair_cost:
                 repair_line += f" — {format_uzs(repair_cost)}"
@@ -385,8 +384,8 @@ class RequestService:
                     for file_id in preview_file_ids[:10]
                 ]
 
-            await self.bot.send_media_group(admin_id,media)
-            await self.bot.send_message(admin_id,message,parse_mode="HTML",reply_markup=markup)
+                await self.bot.send_media_group(admin_id,media) #type:ignore
+                await self.bot.send_message(admin_id,message,parse_mode="HTML",reply_markup=markup)
 
         except Exception as e:
             logger.warning(f"[admin_notify] error {admin_id}: {e}")
