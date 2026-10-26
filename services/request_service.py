@@ -3,6 +3,7 @@ services/request_service.py
 """ 
 
 import asyncio
+import html
 import secrets
 import string
 import re
@@ -42,13 +43,15 @@ class RequestService:
         phone,
         desired_price: str = "0",
         lang =  "ru"
-    ) -> None:
+    ) -> int | None:
+        """Create the request. Returns the new request_id, or None if it was not created
+        (the caller keeps the user's data so the same button can retry)."""
         logger.info(f"[submit] submitting telegram_id={telegram_id}")
         images = await self._download_images(file_ids)
         if not images:
             logger.warning("[submit] Расмларни юклаб олиб бўлмади")
             await self.bot.send_message(chat_id, t(lang, "image_download_failed"))
-            return
+            return None
 
         # Pass images to pricer for vision + analysis
         analysis = await self._analyze_product(description, desired_price, images)
@@ -58,7 +61,7 @@ class RequestService:
             if rejected:
                 logger.info(f"[submit] Автоматик рад этилди telegram_id={telegram_id}: {rejection_msg}")
                 await self.bot.send_message(chat_id, rejection_msg)
-                return
+                return None
 
         enriched_description = self._build_enriched_description(
             description, desired_price, analysis,
@@ -73,7 +76,7 @@ class RequestService:
         if result is None:
             logger.warning("[submit] API returned None")
             await self.bot.send_message(chat_id, t(lang, "api_upload_failed"))
-            return
+            return None
 
         request_id: int = result["request_id"]
         logger.info(f"[submit] Яратилди request_id={request_id} telegram_id={telegram_id}")
@@ -85,9 +88,21 @@ class RequestService:
             description=description,
         )
 
-        await self._notify_admins(request_id, enriched_description,  phone, file_ids)
+        await self._notify_admins(request_id, enriched_description, phone, file_ids, telegram_id=telegram_id)
 
-        await self.bot.send_message(chat_id, t(lang, "request_submitted"))
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton(t(lang, "btn_status"), callback_data="status_check"),
+            InlineKeyboardButton(t(lang, "btn_new_request"), callback_data="new_request"),
+        )
+        key = "request_submitted_phone" if phone else "request_submitted"
+        await self.bot.send_message(
+            chat_id,
+            t(lang, key, request_id=request_id, phone=html.escape(str(phone or ""))),
+            parse_mode="HTML",
+            reply_markup=markup,
+        )
+        return request_id
 
     # -------------------------------------------------------------------------
     # Rejection logic
@@ -288,7 +303,7 @@ class RequestService:
                 async with session.post(
                     url,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=Config.PRICER_TIMEOUT),
                 ) as resp:
                     if resp.status != 200:
                         logger.warning(f"[pricer] HTTP {resp.status}")
@@ -328,6 +343,7 @@ class RequestService:
         description: str,
         phone,
         preview_file_ids,
+        telegram_id: int | None = None,
     ) -> None:
         admin_ids = list(Config.ADMIN_IDS)
         if not admin_ids:
@@ -350,13 +366,32 @@ class RequestService:
         access_link = f"{base_url}/admin/requests/{request_id}?token={token}"
 
         clean_desc = re.sub(r"#([A-Za-z0-9_]+)=[0-9]{5,15}", "", description or "").strip()
+        # Customer text goes into an HTML message: escape it, otherwise a "<" in the
+        # description makes Telegram reject the whole alert and no admin is notified.
+        clean_desc = html.escape(clean_desc)
+        if len(clean_desc) > 3300:
+            clean_desc = clean_desc[:3300].rstrip() + "…"
 
-        phone = f"📞 Телефон рақами: <code>{phone}</code>\n" if phone else ""
+        phone_line = f"📞 Телефон рақами: <code>{html.escape(str(phone))}</code>\n" if phone else ""
+
+        customer_line = ""
+        if telegram_id:
+            try:
+                user = await self.repo.get_user(telegram_id)
+            except Exception:
+                user = None
+            name = html.escape(((user or {}).get("first_name") or "").strip() or str(telegram_id))
+            username = (user or {}).get("username") or ""
+            customer_line = f'👤 Мижоз: <a href="tg://user?id={int(telegram_id)}">{name}</a>'
+            if username:
+                customer_line += f" (@{html.escape(username)})"
+            customer_line += "\n"
 
         caption = (
             f"<b>Янги сўров</b>\n\n"
             f"ID: <code>{request_id}</code>\n"
-            f"{phone}"
+            f"{customer_line}"
+            f"{phone_line}\n"
             f"{clean_desc}"
         )
         markup = InlineKeyboardMarkup()
@@ -377,16 +412,17 @@ class RequestService:
             markup,
             preview_file_ids: list | None = None,
     ) -> None:
+        # Photos are a bonus: if they fail (e.g. a file id Telegram no longer accepts) the
+        # admin must still get the text alert with the approve button.
+        if preview_file_ids:
+            try:
+                media = [InputMediaPhoto(file_id) for file_id in preview_file_ids[:10]]
+                await self.bot.send_media_group(admin_id, media)  # type:ignore
+            except Exception as e:
+                logger.warning(f"[admin_notify] photos failed for {admin_id}: {e}")
+
         try:
-            if preview_file_ids:
-                media = [
-                    InputMediaPhoto(file_id)
-                    for file_id in preview_file_ids[:10]
-                ]
-
-                await self.bot.send_media_group(admin_id,media) #type:ignore
-                await self.bot.send_message(admin_id,message,parse_mode="HTML",reply_markup=markup)
-
+            await self.bot.send_message(admin_id, message, parse_mode="HTML", reply_markup=markup)
         except Exception as e:
             logger.warning(f"[admin_notify] error {admin_id}: {e}")
 

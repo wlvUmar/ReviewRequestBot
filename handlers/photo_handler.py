@@ -2,11 +2,15 @@ import asyncio
 
 from telebot.async_telebot import AsyncTeleBot
 from telebot.states.asyncio.context import StateContext
-from telebot.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import (
+    Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+)
 
 from config import Config
 from db.repository import BotRepository
 from services.request_service import RequestService
+from utils.flow import clear_flow_data
 from utils.i18n import t
 from utils.logger import get_logger
 from utils.states import UserStates
@@ -16,37 +20,70 @@ logger = get_logger(__name__)
 _repo = BotRepository()
 
 
+def progress_markup(lang: str, has_caption: bool) -> InlineKeyboardMarkup:
+    """Buttons under the 'photo accepted' message. If the photo already had a caption the
+    user can go straight to the next step without typing a description."""
+    markup = InlineKeyboardMarkup()
+    if has_caption:
+        markup.add(InlineKeyboardButton(t(lang, "next_button"), callback_data="confirm_description"))
+    markup.add(InlineKeyboardButton(t(lang, "btn_cancel"), callback_data="cancel_flow"))
+    return markup
+
+
+def progress_text(lang: str, count: int, has_caption: bool) -> str:
+    at_max = count >= Config.MAX_PHOTOS_PER_REQUEST
+    key = "photo_progress_done" if at_max else "photo_progress_full"
+    text = t(lang, key, count=count, max=Config.MAX_PHOTOS_PER_REQUEST)
+    if has_caption:
+        text += t(lang, "photo_progress_caption")
+    return text
+
+
 async def finalize_submission(bot: AsyncTeleBot, state: StateContext, chat_id: int, telegram_id: int,
-                              description: str) -> None:
+                              description: str) -> bool:
+    """Send the request. The user's photos/description stay in the state until the request is
+    really created, so a failed upload can simply be retried with the same button."""
     async with state.data() as data:
         lang = data.get("lang", "ru")
-        file_ids: list[str] = data.pop("photos", [])
-        caption: str = data.pop("caption", "")
-        desired_price: str = data.pop("desired_price", "0")
-        data.pop("albums", None)
-        data.pop("description", None)
+        file_ids: list[str] = list(data.get("photos", []))
+        caption: str = data.get("caption", "")
+        desired_price: str = data.get("desired_price", "0")
         phone = data.get("phone", None)
     full_description = "\n".join(filter(None, [caption, description]))
 
     if not file_ids:
         logger.warning(f"Submission attempt with no photos for user_id={telegram_id}")
         await bot.send_message(chat_id, t(lang, "send_photo_first"))
-        return
+        return False
 
+    if not phone:
+        try:
+            user = await _repo.get_user(telegram_id)
+            phone = (user or {}).get("phone")
+        except Exception as e:
+            logger.warning(f"Could not load phone for user_id={telegram_id}: {e}")
 
     logger.info(f"Submitting request for user_id={telegram_id}: {len(file_ids)} photos")
     await bot.send_message(chat_id, t(lang, "submitting_request"))
 
     svc = RequestService(bot, _repo)
-    await svc.submit_product_request(
+    request_id = await svc.submit_product_request(
         chat_id=chat_id,
         telegram_id=telegram_id,
         file_ids=file_ids,
         description=full_description,
         desired_price=desired_price,
         phone=phone,
-        lang=lang
+        lang=lang,
     )
+    if request_id is None:
+        return False
+
+    async with state.data() as data:
+        clear_flow_data(data)
+        data["last_request_id"] = request_id
+    return True
+
 
 def register_photo_handler(bot: AsyncTeleBot):
     _album_flush_timers: dict[tuple[int, int, str], asyncio.Task] = {}
@@ -92,13 +129,15 @@ def register_photo_handler(bot: AsyncTeleBot):
             current.append(file_id)
             data["photos"] = current
             count = len(current)
+            has_caption = bool((data.get("caption") or "").strip())
 
-        at_max = count >= Config.MAX_PHOTOS_PER_REQUEST
-        key = "photo_progress_done" if at_max else "photo_progress_full"
-        next_state = UserStates.awaiting_description
-
-        await state.set(next_state)
-        await bot.send_message(chat_id, t(lang, key, count=count, max=Config.MAX_PHOTOS_PER_REQUEST), parse_mode="HTML")
+        await state.set(UserStates.awaiting_description)
+        await bot.send_message(
+            chat_id,
+            progress_text(lang, count, has_caption),
+            parse_mode="HTML",
+            reply_markup=progress_markup(lang, has_caption),
+        )
         logger.info(f"Photo accepted for user_id={telegram_id}: {count}/{Config.MAX_PHOTOS_PER_REQUEST}")
 
     async def _queue_album_photo(
@@ -157,18 +196,17 @@ def register_photo_handler(bot: AsyncTeleBot):
             current.extend(accepted)
             data["photos"] = current
             count = len(current)
+            has_caption = bool((data.get("caption") or "").strip())
             logger.info(f"Album flushed for user_id={telegram_id}: {len(accepted)} accepted, total {count}")
 
-        at_max = count >= Config.MAX_PHOTOS_PER_REQUEST
-        key = "photo_progress_done" if at_max else "photo_progress_full"
         await state.set(UserStates.awaiting_description)
         await bot.send_message(
             chat_id,
-            t(lang, key, count=count, max=Config.MAX_PHOTOS_PER_REQUEST),
+            progress_text(lang, count, has_caption),
             parse_mode="HTML",
+            reply_markup=progress_markup(lang, has_caption),
         )
 
-    # confirm_send and show_contact callbacks stay exactly as they are — no changes needed
     @bot.callback_query_handler(func=lambda call: call.data == "confirm_send")
     async def handle_confirm_send(call: CallbackQuery, state: StateContext):
         telegram_id = call.from_user.id
@@ -178,6 +216,13 @@ def register_photo_handler(bot: AsyncTeleBot):
             lang = data.get("lang", "ru")
             pending = data.get("photos", [])
             description = data.get("description", "")
+            already_sending = bool(data.get("sending"))
+            if pending and not already_sending:
+                data["sending"] = True  # ignore double taps while the request is being created
+
+        if already_sending:
+            await bot.answer_callback_query(call.id)
+            return
 
         if not pending:
             logger.warning(f"Confirm send with no pending photos for user_id={telegram_id}")
@@ -186,9 +231,18 @@ def register_photo_handler(bot: AsyncTeleBot):
 
         await state.set(UserStates.submitting)
         await bot.answer_callback_query(call.id, t(lang, "submit_button"))
-        await finalize_submission(bot, state, chat_id, telegram_id, description)
-        await state.set(UserStates.awaiting_photo)
-        logger.info(f"Submission finalized for user_id={telegram_id}")
+        ok = False
+        try:
+            ok = await finalize_submission(bot, state, chat_id, telegram_id, description)
+        finally:
+            async with state.data() as data:
+                data.pop("sending", None)
+
+        if ok:
+            await state.set(UserStates.awaiting_photo)
+            logger.info(f"Submission finalized for user_id={telegram_id}")
+        else:
+            logger.warning(f"Submission NOT completed for user_id={telegram_id}; data kept for retry")
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("show_contact:"))
     async def handle_show_contact_callback(call: CallbackQuery):

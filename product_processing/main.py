@@ -1,3 +1,4 @@
+import os
 import time
 import base64
 
@@ -20,6 +21,7 @@ from product_processing.logger import setup_logging, get_logger
 
 _session: aiohttp.ClientSession | None = None
 
+os.makedirs("logs", exist_ok=True)
 setup_logging(log_file="logs/pricer.log")
 logger = get_logger("pricer")
 

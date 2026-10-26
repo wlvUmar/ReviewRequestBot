@@ -6,3 +6,6 @@ flask==3.0.3
 python-dotenv==1.0.1
 redis>=4.6.0
 colorlog==6.8.0
+# AI analyser service (product_processing/)
+fastapi>=0.110,<1
+uvicorn>=0.29,<1

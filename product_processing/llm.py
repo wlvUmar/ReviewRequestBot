@@ -59,6 +59,12 @@ async def _call(
         logger.error(f"[llm] call failed model={model}: {e}")
         raise RuntimeError(f"LLM call failed: {e}")
 
+    if not isinstance(data, dict) or "choices" not in data:
+        # e.g. {"error": {"message": "No auth credentials found", "code": 401}} from OpenRouter
+        err = data.get("error") if isinstance(data, dict) else data
+        logger.error(f"[llm] OpenRouter returned no choices for model={model}: {str(err)[:300]}")
+        raise RuntimeError(f"OpenRouter error: {str(err)[:200]}")
+
     raw = data["choices"][0]["message"]["content"].strip()
     logger.debug(f"[llm] raw response ({len(raw)} chars): {raw[:200]}")
     if raw.startswith("```"):

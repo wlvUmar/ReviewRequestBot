@@ -195,3 +195,16 @@ One service runs everything (`python bot.py`: Telegram polling + the webhook ser
 5. **Only one copy of the bot may poll Telegram.** Stop the old deployment before starting this one, otherwise Telegram answers 409 Conflict.
 
 Not part of this service: the optional pricer (`product_processing/`, FastAPI on `PRICER_URL`). Without it the bot still works; it only skips the price analysis shown to admins.
+
+## AI analyser (pricer) service
+
+The same repo runs two Railway services:
+
+| Service | Variables |
+|---|---|
+| bot | `BOT_TOKEN`, `REDIS_URL`, `PRICER_URL=http://${{pricer.RAILWAY_PRIVATE_DOMAIN}}:8001`, `PRICER_TIMEOUT=50`, ... |
+| pricer | `SERVICE_ROLE=pricer`, `PORT=8001`, `PRICER_HOST=::`, `OPENROUTER_API_KEY` |
+
+Keep the pricer private (no public domain): `/analyze` has no auth. If the analyser is down or slow the admin alert is still sent, without the "ИИ Таҳлили" block.
+
+Customer commands: /start, /status, /lang, /cancel, /help.

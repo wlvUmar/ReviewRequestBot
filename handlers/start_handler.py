@@ -125,7 +125,7 @@ def register_start_handler(bot: AsyncTeleBot):
                 logger.warning(f"Empty phone number from contact for user_id={telegram_id}")
                 await bot.send_message(message.chat.id, t(lang, "phone_prompt"))
                 return
-            data["photo"] = phone
+            data["phone"] = phone
             logger.debug(f"Received phone via contact for user_id={telegram_id}")
             await _process_phone(message, state, telegram_id, phone, lang)
 

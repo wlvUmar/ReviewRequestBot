@@ -61,5 +61,7 @@ class Config:
     MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "10"))
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
     PRICER_URL: str = os.getenv("PRICER_URL", "http://localhost:8001")
+    # How long the bot waits for the AI analysis before sending the request without it.
+    PRICER_TIMEOUT: int = int(os.getenv("PRICER_TIMEOUT", "50"))
     DEBUG: bool = os.getenv("DEBUG", "1") == "1"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

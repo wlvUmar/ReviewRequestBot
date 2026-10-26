@@ -13,6 +13,30 @@ from telebot.states.asyncio.middleware import StateMiddleware
 logger = get_logger(__name__)
 
 
+async def _publish_commands(bot: AsyncTeleBot) -> None:
+    """The blue 'Menu' button in Telegram: shows the commands in the user's own language."""
+    from telebot.types import BotCommand
+    menus = {
+        None: [
+            ("start", "➕ Новая заявка"), ("status", "📋 Статус заявки"), ("lang", "🌐 Язык / Til"),
+            ("cancel", "❌ Отменить"), ("help", "ℹ️ Помощь"),
+        ],
+        "ru": [
+            ("start", "➕ Новая заявка"), ("status", "📋 Статус заявки"), ("lang", "🌐 Язык"),
+            ("cancel", "❌ Отменить"), ("help", "ℹ️ Помощь"),
+        ],
+        "uz": [
+            ("start", "➕ Yangi ariza"), ("status", "📋 Ariza holati"), ("lang", "🌐 Til"),
+            ("cancel", "❌ Bekor qilish"), ("help", "ℹ️ Yordam"),
+        ],
+    }
+    for language_code, items in menus.items():
+        try:
+            await bot.set_my_commands([BotCommand(c, d) for c, d in items], language_code=language_code)
+        except Exception:
+            logger.exception("[bot] Could not publish commands for language=%s", language_code)
+
+
 async def main():
     logger.info("[bot] Initializing async bot...")
     if Config.REDIS_URL:
@@ -35,6 +59,8 @@ async def main():
         state_storage=storage,
         exception_handler=LoggingExceptionHandler(),  # type: ignore[arg-type]
     )  # type: ignore
+
+    await _publish_commands(bot)
 
     logger.info("[bot] Registering handlers...")
     try:
