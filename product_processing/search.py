@@ -9,8 +9,11 @@ async def search(query: str, session: aiohttp.ClientSession) -> list[dict]:
     """
     Use Perplexity via OpenRouter to get real search results with actual prices.
     """
+    if not Config.SEARCH_API_KEY:
+        return []
+
     payload = {
-        "model": "perplexity/sonar",
+        "model": Config.SEARCH_MODEL,
         "messages": [
             {
                 "role": "user",
@@ -26,13 +29,13 @@ async def search(query: str, session: aiohttp.ClientSession) -> list[dict]:
     }
 
     headers = {
-        "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {Config.SEARCH_API_KEY}",
         "Content-Type": "application/json",
     }
 
     try:
         async with session.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            Config.SEARCH_URL,
             json=payload,
             headers=headers,
             timeout=aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT),

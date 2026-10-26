@@ -111,7 +111,7 @@ async def analyze_images(
     image_bytes_list: list[bytes],
     session: aiohttp.ClientSession,
 ) -> "VisionContext | None":
-    if not image_bytes_list:
+    if not image_bytes_list or not Config.VISION_API_KEY:
         return None
 
     cache_key = _cache_key(image_bytes_list)
@@ -133,7 +133,7 @@ async def analyze_images(
         })
 
         payload = {
-            "model": "openai/gpt-4o-mini",
+            "model": Config.VISION_MODEL,
             "messages": [
                 {"role": "system", "content": _VISION_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -143,14 +143,14 @@ async def analyze_images(
         }
 
         headers = {
-            "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {Config.VISION_API_KEY}",
             "Content-Type": "application/json",
         }
 
         logger.debug(f"[vision] calling vision model, images={len(image_bytes_list)}")
 
         async with session.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            Config.VISION_URL,
             headers=headers,
             json=payload,
             timeout=aiohttp.ClientTimeout(total=20),

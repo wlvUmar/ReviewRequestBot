@@ -46,11 +46,28 @@ class Config:
     
     # Logging (DEBUG=1 for verbose, DEBUG=0 for errors only)
     # --- LLM (main extraction model) ---
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "your_key_here")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+    _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+    # Text models (queries + extraction). Point LLM_URL/LLM_API_KEY at any OpenAI-compatible
+    # endpoint, e.g. OpenCode Go: https://opencode.ai/inference/go/openai/v1/chat/completions
+    LLM_URL = os.getenv("LLM_URL", _OPENROUTER_URL)
+    LLM_API_KEY = os.getenv("LLM_API_KEY") or OPENROUTER_API_KEY
     MAIN_MODEL = os.getenv("MAIN_MODEL", "openai/gpt-4o-mini")
 
     # --- LLM (cheap model just for generating search queries) ---
     QUERY_MODEL = os.getenv("QUERY_MODEL", "openai/gpt-4o-mini")
+
+    # Market-price web search (needs a search-capable model, e.g. perplexity/sonar on OpenRouter).
+    # Without a key the search step is skipped and the market price is left to the text model.
+    SEARCH_URL = os.getenv("SEARCH_URL", _OPENROUTER_URL)
+    SEARCH_API_KEY = os.getenv("SEARCH_API_KEY") or OPENROUTER_API_KEY
+    SEARCH_MODEL = os.getenv("SEARCH_MODEL", "perplexity/sonar")
+
+    # Photo analysis (needs an image-capable model). Skipped without a key.
+    VISION_URL = os.getenv("VISION_URL", _OPENROUTER_URL)
+    VISION_API_KEY = os.getenv("VISION_API_KEY") or OPENROUTER_API_KEY
+    VISION_MODEL = os.getenv("VISION_MODEL", "openai/gpt-4o-mini")
 
     # --- SearXNG ---
     SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8080")

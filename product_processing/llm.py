@@ -43,13 +43,13 @@ async def _call(
         "max_tokens": max_tokens,
     }
     headers = {
-        "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {Config.LLM_API_KEY}",
         "Content-Type": "application/json",
     }
     logger.debug(f"[llm] calling model={model} max_tokens={max_tokens}")
     try:
         async with session.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            Config.LLM_URL,
             headers=headers,
             json=payload,
             timeout=aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT),
