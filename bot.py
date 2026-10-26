@@ -15,11 +15,14 @@ logger = get_logger(__name__)
 
 async def main():
     logger.info("[bot] Initializing async bot...")
-    storage = StateRedisStorage(
-        host=Config.REDIS_HOST,
-        port=Config.REDIS_PORT,
-        db=Config.REDIS_DB,
-    )
+    if Config.REDIS_URL:
+        storage = StateRedisStorage(redis_url=Config.REDIS_URL)
+    else:
+        storage = StateRedisStorage(
+            host=Config.REDIS_HOST,
+            port=Config.REDIS_PORT,
+            db=Config.REDIS_DB,
+        )
 
     class LoggingExceptionHandler(ExceptionHandler):
         def handle(self, exception: Exception):
@@ -81,8 +84,11 @@ async def main():
             notifier_task.cancel()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler = getattr(loop, "add_signal_handler", None)
-        loop.add_signal_handler(sig, _handle_shutdown_signal, sig.name)
+        try:
+            loop.add_signal_handler(sig, _handle_shutdown_signal, sig.name)
+        except NotImplementedError:
+            # Windows event loops can't do this; Ctrl+C raises KeyboardInterrupt there instead.
+            pass
     # --- end shutdown wiring ---
 
     logger.info("[bot] Bot is running...")

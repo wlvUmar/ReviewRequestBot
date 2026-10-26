@@ -13,13 +13,17 @@ class Config:
 
     # Callback server (Flask — receives webhooks FROM PHP)
     CALLBACK_HOST: str = os.getenv("CALLBACK_HOST", "0.0.0.0")
-    CALLBACK_PORT: int = int(os.getenv("CALLBACK_PORT", "5055"))
+    # Hosting platforms (Railway, Render, Heroku) inject PORT; it wins over CALLBACK_PORT.
+    CALLBACK_PORT: int = int(os.getenv("PORT") or os.getenv("CALLBACK_PORT", "5055"))
     CALLBACK_SECRET: str = os.getenv("CALLBACK_SECRET", "") # PHP signs callbacks with this
 
     # Redis (for storing lightweight user state like language)
     REDIS_HOST: str = os.getenv("REDIS_HOST", "127.0.0.1")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    # Full connection URL (redis://default:password@host:port). Railway provides REDIS_URL;
+    # when set it replaces REDIS_HOST/PORT/DB.
+    REDIS_URL: str = os.getenv("REDIS_URL", "")
 
     # MySQL
     DB_HOST: str = os.getenv("DB_HOST", "localhost")

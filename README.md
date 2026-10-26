@@ -171,3 +171,27 @@ Your existing CMS tables are **never modified**.
 - Run the Flask callback server behind nginx for HTTPS (required for production).
 - For high volume, move `with_retry` to a task queue (Celery + Redis).
 - Future multi-admin: add `admin_id` to PHP `product_requests` table; no bot changes needed.
+
+## Deploy on Railway
+
+One service runs everything (`python bot.py`: Telegram polling + the webhook server). It needs a Redis database next to it.
+
+1. New Railway project, then add a **Redis** database.
+2. Add this repo as a service (or run `railway up` from this folder). `railway.json` and `Procfile` set the start command; the `/health` endpoint is the health check.
+3. Service **Variables**:
+
+| Variable | Value |
+|----------|-------|
+| `BOT_TOKEN` | token from @BotFather |
+| `PHP_API_BASE_URL` | site root, e.g. `https://kuplyu-tashkent.uz` (no `/api`) |
+| `PHP_API_SECRET` | same as the site's `BOT_API_SECRET` |
+| `CALLBACK_SECRET` | same as the site's `BOT_CALLBACK_SECRET` |
+| `ADMIN_IDS` | comma-separated Telegram ids that receive new-request alerts |
+| `REDIS_URL` | Railway reference to the Redis service: `${{Redis.REDIS_URL}}` |
+| `DEBUG` | `0` |
+| `OPENROUTER_API_KEY` | optional (LLM helper) |
+
+4. Service **Settings, Networking, Generate Domain**. Put that URL in the site's `.env` as `BOT_CALLBACK_URL=https://<domain>` (no trailing slash). The site posts review results to `<domain>/webhook/review-result`.
+5. **Only one copy of the bot may poll Telegram.** Stop the old deployment before starting this one, otherwise Telegram answers 409 Conflict.
+
+Not part of this service: the optional pricer (`product_processing/`, FastAPI on `PRICER_URL`). Without it the bot still works; it only skips the price analysis shown to admins.
