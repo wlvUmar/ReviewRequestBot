@@ -12,44 +12,29 @@ async def search(query: str, session: aiohttp.ClientSession) -> list[dict]:
     if not Config.SEARCH_API_KEY:
         return []
 
-    payload = {
-        "model": Config.SEARCH_MODEL,
-        "messages": [
-            {
-                "role": "user",
-                "content": (
-                    f"Search for current second-hand prices for: {query}\n"
-                    f"Focus on OLX.uz, Avito.uz, Tashkent marketplace listings.\n"
-                    f"Return only a list of actual listings with titles and prices in UZS. "
-                    f"No explanation, just the listings."
-                ), 
-            }
-        ],
-        "max_tokens": 400,
-    }
-
-    headers = {
-        "Authorization": f"Bearer {Config.SEARCH_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
     try:
-        async with session.post(
-            Config.SEARCH_URL,
-            json=payload,
-            headers=headers,
-            timeout=aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT),
-        ) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.warning(f"[search] OpenRouter returned {resp.status}: {text[:200]}")
-                return []
-            data = await resp.json()
-    except Exception as e:
-        logger.warning(f"[search] OpenRouter error for query={query!r}: {e}")
+        content = await complete(
+            session,
+            url=Config.SEARCH_URL,
+            api_key=Config.SEARCH_API_KEY,
+            model=Config.SEARCH_MODEL,
+            system="You find current second-hand listing prices.",
+            user=(
+                f"Search for current second-hand prices for: {query}\n"
+                f"Focus on OLX.uz, Avito.uz, Tashkent marketplace listings.\n"
+                f"Return only a list of actual listings with titles and prices in UZS. "
+                f"No explanation, just the listings."
+            ),
+            # Responses-API models (muse-spark) need the tool enabled; chat models like
+            # perplexity/sonar search on their own and ignore this.
+            web_search=True,
+            max_tokens=400,
+            timeout=Config.REQUEST_TIMEOUT,
+        )
+    except RuntimeError as e:
+        logger.warning(f"[search] error for query={query!r}: {e}")
         return []
 
-    content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
     if not content:
         logger.warning(f"[search] Empty response for query={query!r}")
         return []

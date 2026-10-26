@@ -10,6 +10,7 @@ import time
 import asyncio
 import aiohttp
 from config import Config
+from product_processing.provider import complete
 
 from product_processing.logger import get_logger
 
@@ -120,48 +121,22 @@ async def analyze_images(
         return cached
 
     try:
-        content = []
-        for img_bytes in image_bytes_list[:4]:
-            b64 = base64.b64encode(img_bytes).decode()
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
-            })
-        content.append({
-            "type": "text",
-            "text": "Analyze these product photos and return the JSON object."
-        })
-
-        payload = {
-            "model": Config.VISION_MODEL,
-            "messages": [
-                {"role": "system", "content": _VISION_SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
-            "temperature": 0.1,
-            "max_tokens": 500,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {Config.VISION_API_KEY}",
-            "Content-Type": "application/json",
-        }
-
         logger.debug(f"[vision] calling vision model, images={len(image_bytes_list)}")
-
-        async with session.post(
-            Config.VISION_URL,
-            headers=headers,
-            json=payload,
-            timeout=aiohttp.ClientTimeout(total=20),
-        ) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.warning(f"[vision] model returned {resp.status}: {text[:200]}")
-                return None
-            data = await resp.json()
-
-        raw_response = data["choices"][0]["message"]["content"].strip()
+        try:
+            raw_response = await complete(
+                session,
+                url=Config.VISION_URL,
+                api_key=Config.VISION_API_KEY,
+                model=Config.VISION_MODEL,
+                system=_VISION_SYSTEM_PROMPT,
+                user="Analyze these product photos and return the JSON object.",
+                images_b64=[base64.b64encode(b).decode() for b in image_bytes_list[:4]],
+                max_tokens=500,
+                timeout=30,
+            )
+        except RuntimeError as e:
+            logger.warning(f"[vision] model failed: {e}")
+            return None
         logger.debug(f"[vision] raw response: {raw_response[:200]}")
 
         if raw_response.startswith("```"):

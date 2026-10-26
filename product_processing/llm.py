@@ -11,6 +11,7 @@ Profit math is done in Python (request_service.py), never by the LLM.
 import json
 import aiohttp
 from config import Config
+from product_processing.provider import complete
 from product_processing.logger import get_logger
 
 logger = get_logger(__name__)
@@ -33,39 +34,21 @@ async def _call(
     session: aiohttp.ClientSession,
     max_tokens: int = 600,
 ) -> str:
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": 0.1,
-        "max_tokens": max_tokens,
-    }
-    headers = {
-        "Authorization": f"Bearer {Config.LLM_API_KEY}",
-        "Content-Type": "application/json",
-    }
     logger.debug(f"[llm] calling model={model} max_tokens={max_tokens}")
     try:
-        async with session.post(
-            Config.LLM_URL,
-            headers=headers,
-            json=payload,
-            timeout=aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT),
-        ) as resp:
-            data = await resp.json()
-    except Exception as e:
+        raw = await complete(
+            session,
+            url=Config.LLM_URL,
+            api_key=Config.LLM_API_KEY,
+            model=model,
+            system=system,
+            user=user,
+            max_tokens=max_tokens,
+            timeout=Config.REQUEST_TIMEOUT,
+        )
+    except RuntimeError as e:
         logger.error(f"[llm] call failed model={model}: {e}")
-        raise RuntimeError(f"LLM call failed: {e}")
-
-    if not isinstance(data, dict) or "choices" not in data:
-        # e.g. {"error": {"message": "No auth credentials found", "code": 401}} from OpenRouter
-        err = data.get("error") if isinstance(data, dict) else data
-        logger.error(f"[llm] OpenRouter returned no choices for model={model}: {str(err)[:300]}")
-        raise RuntimeError(f"OpenRouter error: {str(err)[:200]}")
-
-    raw = data["choices"][0]["message"]["content"].strip()
+        raise
     logger.debug(f"[llm] raw response ({len(raw)} chars): {raw[:200]}")
     if raw.startswith("```"):
         raw = raw.split("```")[1]
