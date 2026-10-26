@@ -22,13 +22,27 @@ def start_callback_server(bot, loop):
         timestamp = request.headers.get("X-Callback-Timestamp", "")
         signature = request.headers.get("X-Callback-Signature", "")
         raw_body = request.get_data(as_text=True)
+        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+        logger.info(
+            "[callback] incoming from=%s timestamp=%s signature=%s body_bytes=%d",
+            client_ip, "yes" if timestamp else "MISSING", "yes" if signature else "MISSING", len(raw_body),
+        )
 
-        if not _verify_signature(raw_body, timestamp, signature):
-            logger.warning("[callback] unauthorized request")
+        if not Config.CALLBACK_SECRET:
+            logger.error("[callback] CALLBACK_SECRET is not set on the bot; rejecting")
             return jsonify({"error": "unauthorized"}), 401
 
-        if abs(time.time() - int(timestamp)) > 60:
-            logger.warning("[callback] request expired")
+        if not _verify_signature(raw_body, timestamp, signature):
+            logger.warning("[callback] unauthorized request: signature does not match (CALLBACK_SECRET differs from the site's BOT_CALLBACK_SECRET?)")
+            return jsonify({"error": "unauthorized"}), 401
+
+        try:
+            age = abs(time.time() - int(timestamp))
+        except ValueError:
+            logger.warning("[callback] bad timestamp %r", timestamp)
+            return jsonify({"error": "bad timestamp"}), 400
+        if age > 60:
+            logger.warning("[callback] request expired (clock skew %.0fs)", age)
             return jsonify({"error": "request expired"}), 401
 
         data = request.get_json(silent=True)
